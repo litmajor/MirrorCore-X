@@ -7,8 +7,16 @@ from typing import Dict, Any, Optional, List, Tuple
 
 
 class StrategyTrainerAgent:
+    def update(self, data):
+        # Integrate with main signal flow: evaluate all registered strategies
+        df = data.get('market_data_df') or data.get('market_data')
+        if df is not None:
+            signals = self.evaluate(df)
+            return {f"{self.name}_signals": signals}
+        return {}
     def __init__(self, min_weight: float = 0.1, max_weight: float = 1.0, 
-                 lookback_window: int = 10, pnl_scale_factor: float = 0.1):
+                 lookback_window: int = 10, pnl_scale_factor: float = 0.1, name: str = "StrategyTrainerAgent"):
+        self.name = name
         self.strategies = {}  # name -> strategy module (must have .evaluate())
         self.performance = defaultdict(list)  # name -> [pnl, pnl, ...]
         self.signal_history = defaultdict(list)  # name -> [signals]
@@ -204,18 +212,58 @@ class UTSignalAgent(StrategyAgent):
     def __init__(self, **kwargs):
         from strategies.ut_bot import UTBotStrategy
         super().__init__("UT_BOT", UTBotStrategy(**kwargs))
+    def update(self, data):
+        df = data.get('market_data_df') or data.get('market_data')
+        # If df is a MarketData object, convert to DataFrame
+        if hasattr(df, 'price') and hasattr(df, 'high') and hasattr(df, 'low') and hasattr(df, 'open'):
+            import pandas as pd
+            df = pd.DataFrame({
+                'open': [df.open],
+                'high': [df.high],
+                'low': [df.low],
+                'close': [df.price]
+            })
+        if df is not None:
+            signals = self.evaluate(df)
+            signal = signals[-1] if isinstance(signals, list) and signals else 'HOLD'
+            print(f"[UT_BOT] Output signal: {signal} | Inputs: {df.tail(1).to_dict()}")
+            return {f"{self.name}_signal": signal}
+        return {}
 
 
 class GradientTrendAgent(StrategyAgent):
     def __init__(self, **kwargs):
         from strategies.gradient_trend_filter import GradientTrendFilter
         super().__init__("GRADIENT_TREND", GradientTrendFilter(**kwargs))
+    def update(self, data):
+        df = data.get('market_data_df') or data.get('market_data')
+        # If df is a MarketData object, convert to DataFrame
+        if hasattr(df, 'price') and hasattr(df, 'high') and hasattr(df, 'low') and hasattr(df, 'open'):
+            import pandas as pd
+            df = pd.DataFrame({
+                'open': [df.open],
+                'high': [df.high],
+                'low': [df.low],
+                'close': [df.price]
+            })
+        if df is not None:
+            signals = self.evaluate(df)
+            signal = signals[-1] if isinstance(signals, list) and signals else 'NONE'
+            print(f"[GRADIENT_TREND] Output signal: {signal} | Inputs: {df.tail(1).to_dict()}")
+            return {f"{self.name}_signal": signal}
+        return {}
 
 
 class SupportResistanceAgent(StrategyAgent):
     def __init__(self, **kwargs):
         from strategies.volume_sr_agent import VolumeSupportResistance
         super().__init__("VBSR", VolumeSupportResistance(**kwargs))
+    def update(self, data):
+        df = data.get('market_data_df') or data.get('market_data')
+        if df is not None:
+            signal = self.evaluate(df)
+            return {f"{self.name}_signal": signal}
+        return {}
 
 
 # Example usage
