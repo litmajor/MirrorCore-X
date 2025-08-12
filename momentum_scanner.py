@@ -1,3 +1,8 @@
+# momentum_scanner.py
+#this is helping to build a momentum scanner for crypto and forex markets
+#it will analyze market data, calculate momentum, RSI, MACD, and other indicators
+#and provide insights for trading strategies
+#its the original version of the momentum scanner for crypto and forex markets
 import ccxt
 import pandas as pd
 import numpy as np

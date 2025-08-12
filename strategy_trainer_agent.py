@@ -58,22 +58,23 @@ class StrategyTrainerAgent:
         for name, module in self.strategies.items():
             try:
                 signal_output = module.evaluate(df)
-                
-                # Handle different return types from evaluate()
-                if isinstance(signal_output, (list, tuple)):
-                    signal = signal_output[-1]  # Get the latest signal
-                elif isinstance(signal_output, np.ndarray):
-                    signal = signal_output[-1]
+                # Fix: If df is a list, pass each item to evaluate and collect signals
+                if isinstance(df, list):
+                    signals = [module.evaluate(item) for item in df]
+                    signal = signals[-1] if signals else 0
                 else:
-                    signal = signal_output  # Assume it's a scalar
-                
+                    # Handle different return types from evaluate()
+                    if isinstance(signal_output, (list, tuple)):
+                        signal = signal_output[-1]  # Get the latest signal
+                    elif isinstance(signal_output, np.ndarray):
+                        signal = signal_output[-1]
+                    else:
+                        signal = signal_output  # Assume it's a scalar
                 self.signal_history[name].append(signal)
                 results[name] = signal
-                
             except Exception as e:
                 self.logger.error(f"Strategy {name} evaluation failed: {e}")
                 results[name] = 0  # Neutral signal on error
-                
         return results
     
     def update_performance(self, name: str, pnl: float) -> None:

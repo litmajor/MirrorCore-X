@@ -1,3 +1,201 @@
+#This is the original version of mirrax
+# --- MirrorCore-X (enhanced trading engine) ---
+#currently not being used, but may be useful in the future for research purposes on cognitive self-awareness
+
+# --- TradingOracleEngine (core logic) ---
+class TradingOracleEngine:
+    """Enhanced Oracle Engine specifically designed for trading integration"""
+    def __init__(self, user_id: str, market_context: dict = None):
+        self.user_id = user_id
+        self.market_context = market_context or {}
+        self.seed = self.generate_trading_seed(user_id)
+        self.timeline_map = self.build_market_timeline_matrix()
+        self.anchor = self.calculate_market_anchor_vector()
+        self.confidence_history = []
+        self.performance_feedback = []
+    def generate_trading_seed(self, user_id):
+        ts = str(datetime.utcnow().timestamp())
+        market_hash = str(hash(str(self.market_context))) if self.market_context else "0"
+        raw = f"{user_id}_{ts}_{market_hash}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+    def build_market_timeline_matrix(self):
+        np.random.seed(int(self.seed[:8], 16))
+        return np.random.rand(8, 6)
+    def calculate_market_anchor_vector(self):
+        hash_int = int(self.seed[:12], 16)
+        base_anchor = np.array([
+            (hash_int % 7) / 6,
+            ((hash_int >> 3) % 9) / 8,
+            ((hash_int >> 6) % 11) / 10,
+            ((hash_int >> 9) % 13) / 12,
+            ((hash_int >> 12) % 5) / 4,
+            ((hash_int >> 15) % 17) / 16
+        ])
+        if self.market_context:
+            market_multiplier = np.array([
+                self.market_context.get('trend_strength', 1.0),
+                self.market_context.get('volatility_factor', 1.0),
+                self.market_context.get('volume_factor', 1.0),
+                self.market_context.get('momentum_factor', 1.0),
+                1.0 - self.market_context.get('fear_index', 0.5),
+                self.market_context.get('opportunity_score', 1.0)
+            ])
+            base_anchor = base_anchor * market_multiplier
+        return np.clip(base_anchor, 0, 1)
+    def evaluate_trading_timelines(self):
+        scores = []
+        for idx, timeline in enumerate(self.timeline_map):
+            alignment = np.dot(self.anchor, timeline)
+            confidence_boost = np.mean(self.confidence_history[-10:]) if self.confidence_history else 0
+            performance_boost = np.mean(self.performance_feedback[-5:]) if self.performance_feedback else 0
+            adjusted_score = alignment + (confidence_boost * 0.1) + (performance_boost * 0.15)
+            scores.append((idx, adjusted_score, timeline))
+        return sorted(scores, key=lambda x: x[1], reverse=True)
+    def get_trading_directive(self, signals_df=None, psych_state=None):
+        ranked_timelines = self.evaluate_trading_timelines()
+        primary_timeline = ranked_timelines[0]
+        secondary_timeline = ranked_timelines[1]
+        timeline_idx, stability_score, timeline_vector = primary_timeline
+        trading_actions = [
+            "AGGRESSIVE_BUY", "CONSERVATIVE_BUY", "SCALE_IN", 
+            "HOLD_POSITION", "SCALE_OUT", "CONSERVATIVE_SELL", 
+            "AGGRESSIVE_SELL", "WAIT_SIGNAL"
+        ]
+        risk_factor = timeline_vector[4]
+        opportunity_factor = timeline_vector[5]
+        action_index = int((stability_score * opportunity_factor * 10) % len(trading_actions))
+        base_action = trading_actions[action_index]
+        if risk_factor > 0.7:
+            if "AGGRESSIVE" in base_action:
+                base_action = base_action.replace("AGGRESSIVE", "CONSERVATIVE")
+            elif base_action == "SCALE_IN":
+                base_action = "WAIT_SIGNAL"
+        regime = self._detect_market_regime(timeline_vector)
+        position_size = self._calculate_position_size(stability_score, risk_factor)
+        recommended_timeframe = self._recommend_timeframe(timeline_vector, stability_score)
+        directive = {
+            "primary_timeline": timeline_idx,
+            "stability_score": round(stability_score, 4),
+            "action": base_action,
+            "market_regime": regime,
+            "position_size_factor": position_size,
+            "recommended_timeframe": recommended_timeframe,
+            "risk_level": "HIGH" if risk_factor > 0.6 else "MEDIUM" if risk_factor > 0.3 else "LOW",
+            "opportunity_level": "HIGH" if opportunity_factor > 0.7 else "MEDIUM" if opportunity_factor > 0.4 else "LOW",
+            "confidence": round(min(stability_score * 100, 95), 1),
+            "secondary_timeline": ranked_timelines[1][0],
+            "timeline_consensus": len([t for t in ranked_timelines[:3] if t[1] > 0.5])
+        }
+        self.confidence_history.append(directive["confidence"] / 100)
+        return directive
+    def _detect_market_regime(self, timeline_vector):
+        trend, volatility, volume, momentum, fear, opportunity = timeline_vector
+        if trend > 0.7 and momentum > 0.6:
+            return "STRONG_TREND"
+        elif volatility > 0.8:
+            return "HIGH_VOLATILITY"
+        elif trend < 0.3 and momentum < 0.3:
+            return "SIDEWAYS"
+        elif fear > 0.7:
+            return "FEAR_DRIVEN"
+        elif opportunity > 0.8:
+            return "OPPORTUNITY_RICH"
+        else:
+            return "MIXED"
+    def _calculate_position_size(self, stability_score, risk_factor):
+        base_size = stability_score * 0.8
+        risk_adjustment = 1.0 - (risk_factor * 0.5)
+        return round(np.clip(base_size * risk_adjustment, 0.1, 1.0), 2)
+    def _recommend_timeframe(self, timeline_vector, stability_score):
+        trend, volatility, volume, momentum, fear, opportunity = timeline_vector
+        if volatility > 0.8 and momentum > 0.7:
+            return "scalping"
+        elif stability_score > 0.6 and trend > 0.5:
+            return "7day"
+        elif trend > 0.7 and stability_score > 0.7:
+            return "long_term"
+        else:
+            return "7day"
+    def provide_performance_feedback(self, pnl, win_rate):
+        normalized_pnl = np.tanh(pnl / 1000)
+        normalized_winrate = (win_rate - 50) / 50
+        feedback_score = (normalized_pnl * 0.7) + (normalized_winrate * 0.3)
+        self.performance_feedback.append(feedback_score)
+        if len(self.performance_feedback) > 20:
+            self.performance_feedback = self.performance_feedback[-20:]
+
+# --- OracleEnhancedMirrorCore (integration class) ---
+class OracleEnhancedMirrorCore:
+    """Integration class that enhances MirrorCore-X with Oracle Engine"""
+    def __init__(self, mirrorcore_instance, user_id="TRADER_001"):
+        self.mirrorcore = mirrorcore_instance
+        self.oracle = None
+        self.user_id = user_id
+        self.oracle_decisions = []
+    def _update_market_context(self, signals_df, psych_state, fear_level, scanner_instance=None):
+        if signals_df is None or signals_df.empty:
+            return {}
+        momentum_cols = [col for col in signals_df.columns if col.startswith('momentum_')]
+        primary_momentum_col = momentum_cols[0] if momentum_cols else 'momentum_7day'
+        trend_strength = signals_df[primary_momentum_col].mean() if primary_momentum_col in signals_df.columns else 0.5
+        momentum_std = signals_df[primary_momentum_col].std() if primary_momentum_col in signals_df.columns else 0.1
+        rsi_volatility = signals_df['rsi'].std() / 20 if 'rsi' in signals_df.columns else 1.0
+        volume_factor = 1.0
+        if 'average_volume_usd' in signals_df.columns:
+            volume_mean = signals_df['average_volume_usd'].mean()
+            volume_factor = min(volume_mean / 1_000_000, 3.0)
+        macd_bullish_ratio = (signals_df['macd'] > 0).mean() if 'macd' in signals_df.columns else 0.5
+        strong_signals = ['Consistent Uptrend', 'New Spike', 'MACD Bullish', 'Moderate Uptrend']
+        weak_signals = ['Topping Out', 'Lagging', 'Potential Reversal']
+        signal_strength = 0.5
+        if 'signal' in signals_df.columns:
+            strong_count = signals_df['signal'].isin(strong_signals).sum()
+            weak_count = signals_df['signal'].isin(weak_signals).sum()
+            total_signals = len(signals_df)
+            if total_signals > 0:
+                signal_strength = (strong_count - weak_count) / total_signals + 0.5
+                signal_strength = max(0, min(1, signal_strength))
+        fear_greed_value = 50
+        if scanner_instance and hasattr(scanner_instance, 'fear_greed_history') and scanner_instance.fear_greed_history:
+            fear_greed_value = scanner_instance.fear_greed_history[-1] or 50
+        fear_greed_opportunity = 1.0 - (fear_greed_value / 100)
+        context = {
+            "trend_strength": max(0, min(2, abs(trend_strength) * 10)),
+            "volatility_factor": max(0.1, min(3.0, rsi_volatility + momentum_std)),
+            "volume_factor": volume_factor,
+            "momentum_factor": macd_bullish_ratio,
+            "fear_index": fear_level,
+            "opportunity_score": (signal_strength + fear_greed_opportunity) / 2,
+            "market_fear_greed": fear_greed_value,
+            "signal_distribution": {
+                "strong_signals": strong_count if 'signal' in signals_df.columns else 0,
+                "weak_signals": weak_count if 'signal' in signals_df.columns else 0,
+                "total_signals": len(signals_df)
+            }
+        }
+        return context
+    def enhanced_tick(self, timeframe="7day"):
+        try:
+            scanned_signals = self.mirrorcore.scanner.scan_market(timeframe)
+            strong_signals = self.mirrorcore.scanner.get_strong_signals(timeframe)
+            market_context = self._update_market_context(
+                strong_signals, 
+                getattr(self.mirrorcore.arch_ctrl, 'psych_state', {}),
+                getattr(self.mirrorcore.arch_ctrl, 'fear', 0.5),
+                self.mirrorcore.scanner
+            )
+            self.oracle = TradingOracleEngine(self.user_id, market_context)
+            oracle_directive = self.oracle.get_trading_directive(strong_signals, getattr(self.mirrorcore.arch_ctrl, 'psych_state', {}))
+            self.oracle_decisions.append(oracle_directive)
+            return {
+                "signals": strong_signals,
+                "oracle": oracle_directive,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            print(f"Error in Oracle-enhanced tick: {e}")
+            return {"signals": None, "oracle": {"error": str(e)}, "timestamp": datetime.utcnow().isoformat()}
+
 # === Strategy Trainer Integration ===
 from strategy_trainer_agent import (
     StrategyTrainerAgent,
@@ -1398,142 +1596,28 @@ import ccxt
 from arch_ctrl import ARCH_CTRL
 
 if __name__ == "__main__":
+    # --- MirrorCore-X + Oracle Integration Demo ---
     exchange = ccxt.kucoinfutures({'enableRateLimit': True})
     scanner = MomentumScanner(exchange)
-
     mirrorcore_system, market_gen = create_mirrorcore_system(scanner)
     mirrorcore_system = integrate_selfawareness_into_mirrorcore(mirrorcore_system)
-
+    # Attach scanner to mirrorcore for Oracle integration
+    mirrorcore_system.scanner = scanner
+    # Attach arch_ctrl for Oracle context
     arch_ctrl = ARCH_CTRL()
-
-    mirror_mind = MirrorMindMetaAgent()
-    reflection_core = ReflectionCore()
-    execution_daemon = ExecutionDaemon(dry_run=True)
-
-    # Initialize TradeAnalyzerAgent
-    trade_analyzer = TradeAnalyzerAgent()
-
-    # Inject execute method if not present
-    if not hasattr(ExecutionDaemon, "execute"):
-        def execute(self, signal, symbol="BTC/USDT"):
-            if self.DRY_RUN:
-                print(f"[DRY_RUN] Executing {signal} for {symbol}")
-            else:
-                print(f"[LIVE] Executing {signal} for {symbol}")
-        ExecutionDaemon.execute = execute
-
-    # === Strategy Trainer Setup ===
-    strategy_trainer = StrategyTrainerAgent()
-    strategy_trainer.learn_new_strategy("UT_BOT", UTSignalAgent)
-    strategy_trainer.learn_new_strategy("GRADIENT_TREND", GradientTrendAgent)
-    strategy_trainer.learn_new_strategy("VBSR", SupportResistanceAgent)
-
-    dashboard_data = {
-        'tick': [], 'confidence': [], 'fear': [], 'stress': [],
-        'drift': [], 'trust': [], 'grade': []
-    }
-
-    for i in range(25):
-        market_data = market_gen.generate_tick()
-        arch_ctrl.update(market_volatility=market_data.volatility, loss_occurred=False)
-        insights = arch_ctrl.generate_insights()
-        grade = arch_ctrl.get_grade()
-        print(f"[ARCH_CTRL] Tick Emotions — Fear: {arch_ctrl.fear:.2f}, Confidence: {arch_ctrl.confidence:.2f}, Stress: {arch_ctrl.stress:.2f}")
-        print(f"[ARCH_CTRL] Grade: {grade} | Insights: {insights}")
-
-        # Strategy Evaluation
-        market_df = None  # ← Plug in real DataFrame here
-        signals = strategy_trainer.evaluate(market_df) if market_df is not None else {}
-        best = strategy_trainer.get_best_strategy() if signals else None
-        final_signal = signals.get(best, "HOLD") if best else "HOLD"
-        execution_daemon.execute(final_signal, symbol="BTC/USDT")
-        pnl = np.random.normal(0.01, 0.02)
-        if best:
-            strategy_trainer.update_performance(best, pnl)
-
-        if i % 5 == 0:
-            grades = strategy_trainer.grade_strategies()
-            for name, stats in grades.items():
-                print(f"{name}: PnL={stats['average_pnl']}, Trades={stats['trades']}, Weight={stats['weight']}")
-
-        # Execution and Reflection
-        strong_signals = scanner.get_strong_signals()
-
-        exec_result = execution_daemon.update({"momentum_df": strong_signals, "arch_ctrl": arch_ctrl})
-        reflection_core.update(exec_result)
-
-        # --- TradeAnalyzerAgent: Record trades after execution ---
-        if exec_result and exec_result.get('execution_result'):
-            trades = exec_result['execution_result'].get("trades", [])
-            if trades:
-                last_trade = trades[-1]
-                trade_analyzer.record_trade(last_trade)
-
-        permitted = arch_ctrl.confidence > 0.5 and arch_ctrl.fear < 0.7
-
-        if permitted:
-            print("✅ Action permitted.")
-            global_state = mirrorcore_system.tick(market_data)
-
-            ego = global_state.get("psych_profile", None)
-            if ego:
-                ego_state = {
-                    "confidence": ego.confidence_level,
-                    "stress": ego.stress_level
-                }
-            else:
-                ego_state = {"confidence": 0.5, "stress": 0.5}
-
-            fear_state = {
-                "fear": global_state.get("fear_level", 0.0),
-                "regime": global_state.get("volatility_regime", "calm")
-            }
-            self_state = {
-                "drift": global_state.get("behavioral_drift_score", 0.0),
-                "trust": global_state.get("self_trust_multiplier", 0.8),
-                "deviations": len(global_state.get("behavioral_deviations", {}))
-            }
-
-            decision_count = len(strong_signals)
-            execution_count = len(exec_result.get('execution_result', {}).get('trades', []))
-
-            grade, mind_insights = mirror_mind.generate_insights(
-                ego_state=ego_state,
-                fear_state=fear_state,
-                self_state=self_state,
-                decision_count=decision_count,
-                execution_count=execution_count
-            )
-            print(f"[MirrorMindMetaAgent] Session Grade: {grade} | Insights: {mind_insights}")
-
-            # --- TradeAnalyzerAgent: Per-tick summary every 10 ticks ---
-            if (i + 1) % 10 == 0:
-                mirror_mind.summarize_session()
-                trade_analyzer.summary()
-
-            dashboard_data['tick'].append(i+1)
-            dashboard_data['confidence'].append(ego_state['confidence'])
-            dashboard_data['stress'].append(ego_state['stress'])
-            dashboard_data['fear'].append(fear_state['fear'])
-            dashboard_data['drift'].append(self_state['drift'])
-            dashboard_data['trust'].append(self_state['trust'])
-            dashboard_data['grade'].append(ord(grade[0]) if grade else ord('B'))
-
-        else:
-            print("⛔ Action blocked by emotional state.")
-            dashboard_data['tick'].append(i+1)
-            dashboard_data['confidence'].append(arch_ctrl.confidence)
-            dashboard_data['stress'].append(arch_ctrl.stress)
-            dashboard_data['fear'].append(arch_ctrl.fear)
-            dashboard_data['drift'].append(0.0)
-            dashboard_data['trust'].append(arch_ctrl.trust)
-            dashboard_data['grade'].append(ord('B'))
-
-        if reflection_core.pnl_curve:
-            print(f"Live PnL: {sum(reflection_core.pnl_curve):.4f}")
-        if reflection_core.trade_log:
-            print(f"Trade Log (last): {reflection_core.trade_log[-1]}")
-        time.sleep(0.1)
-
-    print("\n🔮 MirrorCore-X session complete. The cognitive organism has evolved.")
-    mirrorcore_system.plot_performance()
+    mirrorcore_system.arch_ctrl = arch_ctrl
+    # Attach risk sentinel stub if needed
+    if not hasattr(mirrorcore_system, 'risk_sentinel'):
+        mirrorcore_system.risk_sentinel = RiskSentinel()
+    # Attach self-awareness stub if needed
+    if not hasattr(mirrorcore_system, 'self_awareness'):
+        mirrorcore_system.self_awareness = SelfAwarenessAgent()
+    # Attach trade analyzer stub if needed
+    if not hasattr(mirrorcore_system, 'trade_analyzer'):
+        mirrorcore_system.trade_analyzer = TradeAnalyzerAgent()
+    # --- Oracle Integration ---
+    oracle_core = OracleEnhancedMirrorCore(mirrorcore_system, user_id="TRADER_001")
+    # Example: Run an Oracle-enhanced tick
+    print("\n=== Oracle-Enhanced MirrorCore-X Demo ===")
+    oracle_result = oracle_core.enhanced_tick(timeframe="7day")
+    print(f"Oracle Result: {oracle_result}")
