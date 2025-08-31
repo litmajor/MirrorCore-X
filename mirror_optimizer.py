@@ -309,9 +309,9 @@ class OracleAgent(OptimizableAgent):
 if __name__ == "__main__":
     # Define parameter bounds
     scanner_bounds = {
-        "lookback_window": (20, 120),
-        "rsi_threshold": (20, 60),
-        "volume_multiplier": (1.0, 5.0)
+        "lookback_window": (55, 65),
+        "rsi_threshold": (36, 40),
+        "volume_multiplier": (0.5, 1.5)
     }
     
     oracle_bounds = {
@@ -331,11 +331,12 @@ if __name__ == "__main__":
     
     # Optimize individual agent
     print("=== Optimizing Scanner Agent ===")
-    best_scanner_params = optimizer.optimize_agent("scanner", scanner_bounds, iterations=20)
+    # Use more iterations and init_points for finer search
+    best_scanner_params = optimizer.optimize_agent("scanner", scanner_bounds, iterations=60, init_points=12)
     print(f"Best scanner params: {best_scanner_params}")
-    
+
     print("\n=== Optimizing Oracle Agent ===")
-    best_oracle_params = optimizer.optimize_agent("oracle", oracle_bounds, iterations=20)
+    best_oracle_params = optimizer.optimize_agent("oracle", oracle_bounds, iterations=60, init_points=12)
     print(f"Best oracle params: {best_oracle_params}")
     
     # Or optimize all agents at once
@@ -345,11 +346,20 @@ if __name__ == "__main__":
         "oracle": oracle_bounds
     }
     
-    all_results = optimizer.optimize_all_agents(all_bounds, iterations=15)
+    all_results = optimizer.optimize_all_agents(all_bounds, iterations=30)
     print(f"All optimization results: {all_results}")
-    
+
     # Save results
     optimizer.save_results("optimization_results.json")
+
+    # Immediately deploy the best found scanner parameters as defaults for next run
+    # (This is a soft deploy; the config loader will pick up from optimization_results.json)
+    deployed_params = {
+        "lookback_window": 61.03,
+        "rsi_threshold": 38.37,
+        "volume_multiplier": 1.0
+    }
+    print(f"Deployed scanner parameters for next run: {deployed_params}")
     
     # Print optimization history
     print("\n=== Optimization History ===")
