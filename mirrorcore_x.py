@@ -51,8 +51,76 @@ class ARCH_CTRL:
         self.confidence = 0.5
         self.emotional_state = "UNCERTAIN"
 
-class StrategyTrainerAgent:
-    def register_strategy(self, name, agent): pass
+# Placeholder for OptimizableAgent interface
+class OptimizableAgent:
+    def get_hyperparameters(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def set_hyperparameters(self, params: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def validate_params(self, params: Dict[str, Any]) -> bool:
+        raise NotImplementedError
+
+    def evaluate(self) -> float:
+        raise NotImplementedError
+
+class StrategyTrainerAgent(OptimizableAgent):
+    def __init__(self):
+        self.strategies = {}
+        self.performance_tracker = {}
+        self.learning_rate = 0.01
+        self.confidence_threshold = 0.6
+        self.performance_history = []
+
+    def register_strategy(self, name, agent):
+        self.strategies[name] = agent
+        self.performance_tracker[name] = []
+
+    def get_hyperparameters(self) -> Dict[str, Any]:
+        return {
+            "learning_rate": self.learning_rate,
+            "confidence_threshold": self.confidence_threshold
+        }
+
+    def set_hyperparameters(self, params: Dict[str, Any]) -> None:
+        self.learning_rate = float(params.get("learning_rate", self.learning_rate))
+        self.confidence_threshold = float(params.get("confidence_threshold", self.confidence_threshold))
+
+    def validate_params(self, params: Dict[str, Any]) -> bool:
+        lr = params.get("learning_rate", self.learning_rate)
+        conf = params.get("confidence_threshold", self.confidence_threshold)
+        return (0.001 <= lr <= 0.1 and 0.1 <= conf <= 0.9)
+
+    def evaluate(self) -> float:
+        if not self.performance_history:
+            return 0.5
+        return sum(self.performance_history[-20:]) / min(20, len(self.performance_history))
+
+    def update_performance(self, strategy_name: str, pnl: float):
+        if strategy_name in self.performance_tracker:
+            self.performance_tracker[strategy_name].append(pnl)
+            # Add to overall performance
+            normalized_score = max(0, min(1, (pnl + 100) / 200))  # Normalize PnL to 0-1
+            self.performance_history.append(normalized_score)
+            if len(self.performance_history) > 100:
+                self.performance_history = self.performance_history[-100:]
+
+    def grade_strategies(self) -> Dict[str, str]:
+        grades = {}
+        for name, performance in self.performance_tracker.items():
+            if performance:
+                avg_performance = sum(performance[-10:]) / min(10, len(performance))
+                if avg_performance > 50:
+                    grades[name] = "A"
+                elif avg_performance > 0:
+                    grades[name] = "B"
+                else:
+                    grades[name] = "C"
+            else:
+                grades[name] = "N/A"
+        return grades
+
 
 class UTSignalAgent: pass
 class GradientTrendAgent: pass
@@ -299,6 +367,8 @@ class HighPerformanceSyncBus:
         interests = getattr(agent, 'data_interests', ['all'])
         asyncio.create_task(self.register_agent(name, interests))
         self.agent_states[name] = {}
+        # Dynamically attach agent as an attribute for easy access if needed
+        setattr(self, name, agent)
         logger.info(f"Attached agent: {name}")
 
     def detach(self, name: str) -> None:
@@ -313,6 +383,9 @@ class HighPerformanceSyncBus:
             del self.circuit_breakers[name]
         if name in self.agent_states:
             del self.agent_states[name]
+        # Remove agent attribute if it exists
+        if hasattr(self, name):
+            delattr(self, name)
         logger.info(f"Detached agent: {name}")
 
     async def update_agent_state(self, agent_id: str, state_delta: Dict[str, Any]):
@@ -387,6 +460,7 @@ class HighPerformanceSyncBus:
         try:
             # Process agents with timeout and isolation
             tasks = []
+            # Iterate over a copy of agent_states keys to avoid issues if an agent is detached during processing
             for agent_id in list(self.agent_states.keys()):
                 if not self._is_circuit_open(agent_id):
                     task = asyncio.create_task(
@@ -409,12 +483,13 @@ class HighPerformanceSyncBus:
             self.performance_metrics['failed_updates'] += 1
             # Potentially isolate agents that timed out
             for i, task in enumerate(tasks):
-                 if task.done() and task.get_coro().cr_running.get_coro().cr_frame.f_code.co_name == "_process_agent_safely":
+                # Check if the task is done and has an exception (likely timeout)
+                if task.done() and task.exception() is not None:
                     agent_id = task.get_name().replace('agent_', '')
                     if agent_id in self.agent_states: # Ensure agent is still registered
                         await self._record_failure(agent_id, asyncio.TimeoutError("Agent processing timed out"))
                         if self._should_open_circuit(agent_id):
-                             await self._isolate_agent(agent_id)
+                            await self._isolate_agent(agent_id)
 
         except Exception as e:
             logger.error(f"Critical error in tick processing: {str(e)}")
@@ -434,8 +509,7 @@ class HighPerformanceSyncBus:
 
             # Simulate agent processing by calling its update method
             # NOTE: This assumes agents have an async `update` method.
-            # If agents are synchronous, this part needs adjustment.
-            agent_instance = getattr(self.syncbus, agent_id, None) # Assuming agents are attached as attributes
+            agent_instance = getattr(self, agent_id, None) # Get agent instance via attribute
             if agent_instance and hasattr(agent_instance, 'update'):
                 # Combine queued updates and pass them
                 combined_data = {}
@@ -898,54 +972,43 @@ class MirrorAgent:
 async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanceSyncBus, Any]:
     """Create enhanced MirrorCore-X system with high-performance SyncBus"""
 
-    # Initialize enhanced SyncBus
     sync_bus = HighPerformanceSyncBus()
-
-    # Initialize data pipeline
     data_pipeline = DataPipeline(sync_bus)
-
-    # Initialize console monitor
     console_monitor = ConsoleMonitor(sync_bus)
-
-    # Initialize command interface
     command_interface = CommandInterface(sync_bus)
 
-    # Create core agents
     try:
-        # Scanner
-        exchange_config = {'enableRateLimit': True, 'options': {'defaultType': 'spot'}} # Default to spot
+        exchange_config = {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}
         if dry_run:
-            exchange_config['urls'] = {'api': 'https://api.binance.com'} # Use a mock API or sandbox if available
+            # Use a mock or sandbox URL if available, otherwise simulate.
+            # For simplicity, ccxt might handle dry_run internally or require specific setup.
+            # Here, we'll just log the mode and use a placeholder.
             logger.warning("Using dry_run mode. Exchange interactions will be simulated.")
-            # In a real scenario, you'd use a specific sandbox URL or mock exchange
-            # For simplicity here, we just log the mode. Actual ccxt sandbox setup might differ.
+            # Example: If using a mock exchange library:
+            # from mock_exchange import MockExchange
+            # exchange = MockExchange(config=exchange_config)
+            # For now, just use ccxt with a note it's simulated.
+            exchange = ccxt.binance(exchange_config) # Placeholder for simulated exchange
+        else:
+            exchange = ccxt.binance(exchange_config) # Use real exchange for live trading
 
-        exchange = ccxt.binance(exchange_config) # Using Binance as an example
 
         scanner = MomentumScanner(exchange=exchange)
-
-        # Strategy trainer
         strategy_trainer = StrategyTrainerAgent()
-
-        # Trade analyzer
         trade_analyzer = TradeAnalyzerAgent()
-
-        # ARCH_CTRL (emotional controller)
         arch_ctrl = ARCH_CTRL()
 
-        # Create instances of other agents that need to be attached
-        # Assuming these agents exist and can be instantiated
-        data_categorizer = DataCategorizer() # Instance of categorizer used by SyncBus
-        ego_processor = EgoProcessor() # Assuming EgoProcessor exists
-        fear_analyzer = FearAnalyzer() # Assuming FearAnalyzer exists
-        self_awareness_agent = SelfAwarenessAgent() # Assuming SelfAwarenessAgent exists
-        decision_mirror = DecisionMirror() # Assuming DecisionMirror exists
-        execution_daemon = ExecutionDaemon(exchange=exchange, dry_run=dry_run) # Pass exchange and dry_run
-        reflection_core = ReflectionCore() # Assuming ReflectionCore exists
-        mirror_mind_meta_agent = MirrorMindMetaAgent() # Assuming MirrorMindMetaAgent exists
-        meta_agent = MetaAgent() # Assuming MetaAgent exists
-        risk_sentinel = RiskSentinel() # Assuming RiskSentinel exists
-        mirror_optimizer = MirrorOptimizerAgent() # Assuming MirrorOptimizerAgent exists
+        # Instantiate agents that need to be attached to the SyncBus
+        ego_processor = EgoProcessor()
+        fear_analyzer = FearAnalyzer()
+        self_awareness_agent = SelfAwarenessAgent()
+        decision_mirror = DecisionMirror()
+        execution_daemon = ExecutionDaemon(exchange=exchange, dry_run=dry_run)
+        reflection_core = ReflectionCore()
+        mirror_mind_meta_agent = MirrorMindMetaAgent()
+        meta_agent = MetaAgent()
+        risk_sentinel = RiskSentinel()
+        mirror_optimizer = MirrorOptimizerAgent()
 
 
         # Attach agents to SyncBus
@@ -953,7 +1016,6 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('strategy_trainer', strategy_trainer)
         sync_bus.attach('trade_analyzer', trade_analyzer)
         sync_bus.attach('arch_ctrl', arch_ctrl)
-        sync_bus.attach('data_categorizer', data_categorizer) # Attach categorizer if it's meant to be an agent
         sync_bus.attach('ego_processor', ego_processor)
         sync_bus.attach('fear_analyzer', fear_analyzer)
         sync_bus.attach('self_awareness', self_awareness_agent)
@@ -966,14 +1028,13 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('mirror_optimizer', mirror_optimizer)
 
 
-        # Register strategies with trainer
+        # Register strategies (assuming these agents exist)
         strategy_trainer.register_strategy("UT_BOT", UTSignalAgent())
         strategy_trainer.register_strategy("GRADIENT_TREND", GradientTrendAgent())
         strategy_trainer.register_strategy("VBSR", SupportResistanceAgent())
 
         logger.info("MirrorCore-X system created with enhanced SyncBus")
 
-        # Return system components
         return sync_bus, {
             'data_pipeline': data_pipeline,
             'console_monitor': console_monitor,
