@@ -658,7 +658,7 @@ class HighPerformanceSyncBus:
     async def _notify_interested_agents(self, source_agent_id: str, state_delta: Dict[str, Any]):
         """Notify other agents about state changes"""
         for agent_id, interests in self.subscriptions.items():
-            if agent_id != source_agent_id and self._is_relevant(interests, source_agent_id, state_delta):
+            if agent_id != source_agent_id and self._is_relevant(interests, agent_id, state_delta):
                 try:
                     notification = {
                         'source_agent': source_agent_id,
@@ -1008,7 +1008,28 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
-        mirror_optimizer = MirrorOptimizerAgent()
+        # Import and create comprehensive optimizer
+        from mirror_optimizer import ComprehensiveMirrorOptimizer
+
+        # Collect all components for the optimizer
+        all_components = {
+            'scanner': scanner,
+            'strategy_trainer': strategy_trainer,
+            'trade_analyzer': trade_analyzer,
+            'arch_ctrl': arch_ctrl,
+            'ego_processor': ego_processor,
+            'fear_analyzer': fear_analyzer,
+            'self_awareness': self_awareness_agent,
+            'decision_mirror': decision_mirror,
+            'execution_daemon': execution_daemon,
+            'reflection_core': reflection_core,
+            'mirror_mind_meta': mirror_mind_meta_agent,
+            'meta_agent': meta_agent,
+            'risk_sentinel': risk_sentinel
+        }
+
+        # Create comprehensive optimizer
+        comprehensive_optimizer = ComprehensiveMirrorOptimizer(all_components)
 
 
         # Attach agents to SyncBus
@@ -1025,7 +1046,7 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('mirror_mind_meta', mirror_mind_meta_agent)
         sync_bus.attach('meta_agent', meta_agent)
         sync_bus.attach('risk_sentinel', risk_sentinel)
-        sync_bus.attach('mirror_optimizer', mirror_optimizer)
+        sync_bus.attach('comprehensive_optimizer', comprehensive_optimizer)
 
 
         # Register strategies (assuming these agents exist)
@@ -1046,7 +1067,7 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
             'execution_daemon': execution_daemon,
             'strategy_trainer': strategy_trainer,
             'trade_analyzer': trade_analyzer,
-            'mirror_optimizer': mirror_optimizer,
+            'comprehensive_optimizer': comprehensive_optimizer,
             'ego_processor': ego_processor,
             'fear_analyzer': fear_analyzer,
             'self_awareness': self_awareness_agent,
@@ -1650,7 +1671,28 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
-        mirror_optimizer = MirrorOptimizerAgent()
+        # Import and create comprehensive optimizer
+        from mirror_optimizer import ComprehensiveMirrorOptimizer
+
+        # Collect all components for the optimizer
+        all_components = {
+            'scanner': scanner,
+            'strategy_trainer': strategy_trainer,
+            'trade_analyzer': trade_analyzer,
+            'arch_ctrl': arch_ctrl,
+            'ego_processor': ego_processor,
+            'fear_analyzer': fear_analyzer,
+            'self_awareness': self_awareness_agent,
+            'decision_mirror': decision_mirror,
+            'execution_daemon': execution_daemon,
+            'reflection_core': reflection_core,
+            'mirror_mind_meta': mirror_mind_meta_agent,
+            'meta_agent': meta_agent,
+            'risk_sentinel': risk_sentinel
+        }
+
+        # Create comprehensive optimizer
+        comprehensive_optimizer = ComprehensiveMirrorOptimizer(all_components)
 
 
         # Attach agents to SyncBus
@@ -1667,7 +1709,7 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('mirror_mind_meta', mirror_mind_meta_agent)
         sync_bus.attach('meta_agent', meta_agent)
         sync_bus.attach('risk_sentinel', risk_sentinel)
-        sync_bus.attach('mirror_optimizer', mirror_optimizer)
+        sync_bus.attach('comprehensive_optimizer', comprehensive_optimizer)
 
 
         # Register strategies (assuming these agents exist)
@@ -1688,7 +1730,7 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
             'execution_daemon': execution_daemon,
             'strategy_trainer': strategy_trainer,
             'trade_analyzer': trade_analyzer,
-            'mirror_optimizer': mirror_optimizer,
+            'comprehensive_optimizer': comprehensive_optimizer,
             'ego_processor': ego_processor,
             'fear_analyzer': fear_analyzer,
             'self_awareness': self_awareness_agent,

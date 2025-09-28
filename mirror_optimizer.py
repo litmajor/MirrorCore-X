@@ -1,10 +1,16 @@
 
+"""
+Enhanced MirrorOptimizer for comprehensive parameter optimization across all MirrorCore-X components
+"""
+
 from bayes_opt import BayesianOptimization
-from typing import Dict, Callable, Optional, Any
+from typing import Dict, Callable, Optional, Any, List, Tuple
 import numpy as np
 import logging
 from abc import ABC, abstractmethod
 import json
+import asyncio
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -24,256 +30,494 @@ class OptimizableAgent(ABC):
         pass
     
     @abstractmethod
+    def validate_params(self, params: Dict[str, Any]) -> bool:
+        """Validate parameters before setting them."""
+        pass
+    
+    @abstractmethod
     def evaluate(self) -> float:
         """Evaluate the agent's performance. Higher values are better."""
         pass
-    
-    def validate_params(self, params: Dict[str, Any]) -> bool:
-        """Optional: Validate parameters before setting them."""
-        return True
 
-class MirrorOptimizerAgent:
-    """Bayesian optimization engine for trading agents."""
+class ComprehensiveMirrorOptimizer:
+    """Enhanced Bayesian optimization engine covering ALL MirrorCore-X parameters."""
     
-    def __init__(self, agents: Dict[str, OptimizableAgent]):
+    def __init__(self, system_components: Dict[str, Any]):
         """
-        Initialize the optimizer with a dictionary of agents.
+        Initialize with complete system components.
         
         Args:
-            agents: Dictionary mapping agent names to OptimizableAgent instances
+            system_components: Dictionary containing all MirrorCore-X components
         """
-        self.agents = agents
+        self.components = system_components
         self.optimization_history = {}
+        self.global_optimization_results = {}
         
-    def optimize_agent(self, 
-                      agent_name: str, 
-                      bounds: Dict[str, tuple], 
-                      iterations: int = 15,
-                      init_points: int = 5,
-                      acq: str = 'ucb',
-                      kappa: float = 2.576,
-                      xi: float = 0.0) -> Dict[str, Any]:
-        """
-        Optimize an agent's hyperparameters using Bayesian optimization.
-        
-        Args:
-            agent_name: Name of the agent to optimize
-            bounds: Dictionary of parameter bounds in format {'param': (min, max)}
-            iterations: Number of optimization iterations
-            init_points: Number of random initialization points
-            acq: Acquisition function ('ucb', 'ei', or 'poi')
-            kappa: Kappa parameter for UCB acquisition function
-            xi: Xi parameter for EI and POI acquisition functions
+        # Define comprehensive parameter bounds for ALL components
+        self.parameter_bounds = {
+            # Scanner/Market Analysis Parameters
+            'scanner': {
+                'momentum_period': (5, 50),
+                'rsi_window': (5, 50), 
+                'volume_threshold': (0.5, 10.0),
+                'macd_fast': (8, 16),
+                'macd_slow': (20, 35),
+                'bb_period': (15, 25),
+                'bb_std': (1.5, 2.5),
+                'ichimoku_conversion': (7, 12),
+                'ichimoku_base': (22, 30),
+                'adx_period': (10, 18),
+                'momentum_lookback': (3, 15),
+                'volatility_window': (10, 30),
+                'volume_sma_period': (15, 25)
+            },
             
-        Returns:
-            Dictionary containing the best parameters found
+            # Strategy Trainer Parameters
+            'strategy_trainer': {
+                'learning_rate': (0.001, 0.1),
+                'confidence_threshold': (0.1, 0.9),
+                'min_weight': (0.05, 0.2),
+                'max_weight': (0.8, 1.0),
+                'lookback_window': (5, 50),
+                'pnl_scale_factor': (0.05, 0.5),
+                'performance_decay': (0.9, 0.99),
+                'weight_adjustment_rate': (0.01, 0.2)
+            },
+            
+            # ARCH_CTRL Emotional Parameters
+            'arch_ctrl': {
+                'fear_sensitivity': (0.1, 1.0),
+                'confidence_boost_rate': (0.01, 0.1),
+                'stress_decay_rate': (0.005, 0.05),
+                'volatility_fear_threshold': (0.02, 0.08),
+                'override_confidence_min': (0.8, 0.95),
+                'emotional_momentum_threshold': (0.1, 0.5),
+                'stress_trigger_limit': (3, 10),
+                'trust_decay_rate': (0.01, 0.1)
+            },
+            
+            # Execution Daemon Parameters
+            'execution_daemon': {
+                'position_size_factor': (0.5, 2.0),
+                'risk_per_trade': (0.01, 0.05),
+                'max_positions': (1, 10),
+                'slippage_tolerance': (0.001, 0.01),
+                'timeout_seconds': (5, 30),
+                'retry_attempts': (1, 5),
+                'profit_target_multiplier': (1.5, 3.0),
+                'stop_loss_multiplier': (0.5, 1.5)
+            },
+            
+            # Risk Sentinel Parameters
+            'risk_sentinel': {
+                'max_drawdown': (-0.5, -0.1),
+                'max_position_limit': (0.05, 0.3),
+                'max_loss_per_trade': (-0.1, -0.01),
+                'correlation_limit': (0.3, 0.8),
+                'var_confidence': (0.9, 0.99),
+                'lookback_periods': (20, 100),
+                'volatility_multiplier': (1.0, 3.0)
+            },
+            
+            # Trading Strategies Parameters
+            'ut_bot': {
+                'atr_period': (10, 20),
+                'sensitivity': (1.0, 3.0),
+                'key_value': (1.0, 5.0),
+                'atr_multiplier': (2.0, 4.0)
+            },
+            
+            'gradient_trend': {
+                'ema_fast': (5, 15),
+                'ema_slow': (20, 50),
+                'gradient_threshold': (0.001, 0.01),
+                'trend_strength_min': (0.3, 0.8),
+                'smoothing_period': (3, 10)
+            },
+            
+            'volume_sr': {
+                'volume_threshold': (1.2, 3.0),
+                'support_resistance_period': (20, 50),
+                'breakout_confirmation': (2, 8),
+                'volume_ma_period': (10, 30)
+            },
+            
+            # Enhanced Scanner Parameters
+            'momentum_scanner': {
+                'scan_interval': (30, 300),
+                'top_n_results': (10, 100),
+                'min_volume_usd': (100000, 5000000),
+                'momentum_bias': (0.3, 0.8),
+                'cluster_lookback': (5, 20),
+                'volume_threshold_multiplier': (1.5, 3.0)
+            },
+            
+            # Continuous Scanner Parameters
+            'continuous_scanner': {
+                'tick_interval': (1, 10),
+                'signal_generation_interval': (60, 300),
+                'market_state_update_interval': (120, 600),
+                'data_persistence_limit': (500, 2000),
+                'regime_sensitivity': (0.2, 0.5),
+                'reversion_threshold': (0.5, 0.8)
+            },
+            
+            # Meta Agent Parameters
+            'meta_agent': {
+                'optimization_interval': (1800, 7200),
+                'performance_threshold': (-0.2, 0.1),
+                'adaptation_rate': (0.1, 0.5),
+                'system_health_threshold': (0.6, 0.9),
+                'emergency_threshold': (-0.3, -0.1)
+            },
+            
+            # SyncBus Performance Parameters
+            'syncbus': {
+                'tick_timeout': (5, 30),
+                'queue_max_size': (50, 200),
+                'circuit_breaker_threshold': (3, 10),
+                'agent_restart_delay': (10, 120),
+                'health_check_interval': (30, 300)
+            },
+            
+            # Bayesian Oracle Parameters (if using bayesian_integration)
+            'bayesian_oracle': {
+                'decay_factor': (0.9, 0.99),
+                'confidence_weighting': (0.1, 1.0),
+                'max_history_length': (100, 500),
+                'regime_sensitivity': (0.2, 0.6),
+                'uncertainty_penalty': (0.1, 0.5),
+                'min_evidence_threshold': (2, 10)
+            },
+            
+            # RL Trading System Parameters (if using RL)
+            'rl_system': {
+                'learning_rate': (0.0001, 0.01),
+                'gamma': (0.9, 0.999),
+                'epsilon': (0.01, 0.3),
+                'batch_size': (16, 128),
+                'memory_size': (1000, 10000),
+                'update_frequency': (1, 10),
+                'target_update_frequency': (10, 100)
+            }
+        }
+        
+        logger.info(f"Comprehensive MirrorOptimizer initialized with {len(self.parameter_bounds)} component types")
+    
+    def get_all_optimizable_components(self) -> Dict[str, OptimizableAgent]:
+        """Get all components that implement OptimizableAgent interface."""
+        optimizable = {}
+        
+        for name, component in self.components.items():
+            if hasattr(component, 'get_hyperparameters') and \
+               hasattr(component, 'set_hyperparameters') and \
+               hasattr(component, 'validate_params') and \
+               hasattr(component, 'evaluate'):
+                optimizable[name] = component
+                logger.info(f"Found optimizable component: {name}")
+        
+        return optimizable
+    
+    def optimize_component(self, 
+                          component_name: str,
+                          component: OptimizableAgent,
+                          custom_bounds: Optional[Dict[str, tuple]] = None,
+                          iterations: int = 20,
+                          init_points: int = 8) -> Dict[str, Any]:
         """
-        agent = self.agents.get(agent_name)
-        if not agent:
-            raise ValueError(f"Agent '{agent_name}' not found. Available agents: {list(self.agents.keys())}")
+        Optimize a single component with comprehensive parameter coverage.
+        """
+        # Use custom bounds or default bounds for this component type
+        bounds = custom_bounds or self.parameter_bounds.get(component_name, {})
         
-        logger.info(f"Starting optimization for agent '{agent_name}'")
-        logger.info(f"Bounds: {bounds}")
-        logger.info(f"Iterations: {iterations}, Init points: {init_points}")
+        if not bounds:
+            logger.warning(f"No bounds defined for component {component_name}")
+            return {}
         
-        # Store original parameters for potential rollback
-        original_params = agent.get_hyperparameters()
+        # Filter bounds to only include parameters the component actually has
+        current_params = component.get_hyperparameters()
+        filtered_bounds = {k: v for k, v in bounds.items() if k in current_params}
         
-        # Dynamically create a target function with the correct signature for BayesianOptimization
-        param_names = list(bounds.keys())
-        def target_function(**params):
+        if not filtered_bounds:
+            logger.warning(f"No matching parameters found for component {component_name}")
+            return {}
+        
+        logger.info(f"Optimizing {component_name} with parameters: {list(filtered_bounds.keys())}")
+        
+        # Store original parameters
+        original_params = component.get_hyperparameters()
+        
+        def objective_function(**params):
             try:
-                # Only keep parameters that are in bounds
-                params = {k: params[k] for k in param_names if k in params}
-                if not agent.validate_params(params):
-                    logger.warning(f"Invalid parameters: {params}")
+                # Validate and set parameters
+                if not component.validate_params(params):
                     return -np.inf
-                agent.set_hyperparameters(params)
-                score = agent.evaluate()
-                logger.info(f"Params: {params} -> Score: {score:.4f}")
+                
+                component.set_hyperparameters(params)
+                score = component.evaluate()
+                
+                logger.debug(f"{component_name} - Params: {params} -> Score: {score:.4f}")
                 return score
+                
             except Exception as e:
-                logger.error(f"Error evaluating parameters {params}: {str(e)}")
+                logger.error(f"Error evaluating {component_name}: {e}")
                 return -np.inf
         
         # Set up Bayesian optimization
         optimizer = BayesianOptimization(
-            f=target_function,
-            pbounds=bounds,
+            f=objective_function,
+            pbounds=filtered_bounds,
             random_state=42,
             verbose=1
         )
         
-        # Configure acquisition function
-        optimizer.set_gp_params(alpha=1e-3)
-        
         try:
             # Run optimization
-            optimizer.maximize(
-                init_points=init_points,
-                n_iter=iterations
-            )
+            optimizer.maximize(init_points=init_points, n_iter=iterations)
             
-            # Get best parameters
-            if optimizer.max is not None:
+            # Get results
+            if optimizer.max:
                 best_params = optimizer.max.get("params", {})
-                best_score = optimizer.max.get("target", float('-inf'))
-            else:
-                logger.error(f"No optimization results found for '{agent_name}'.")
-                best_params = {}
-                best_score = float('-inf')
-            
-            logger.info(f"Optimization complete for '{agent_name}'")
-            logger.info(f"Best score: {best_score:.4f}")
-            logger.info(f"Best parameters: {best_params}")
-            
-            # Set the best parameters if available
-            if best_params:
-                agent.set_hyperparameters(best_params)
-            
-            # Store optimization history
-            self.optimization_history[agent_name] = {
-                'best_params': best_params,
-                'best_score': best_score,
-                'original_params': original_params,
-                'bounds': bounds,
-                'iterations': iterations,
-                'all_results': [
-                    {'params': dict(res['params']), 'target': res['target']} 
-                    for res in optimizer.res
-                ]
-            }
-            
-            return best_params
+                best_score = optimizer.max.get("target", -np.inf)
+                
+                # Apply best parameters
+                if best_params:
+                    component.set_hyperparameters(best_params)
+                
+                # Store optimization history
+                self.optimization_history[component_name] = {
+                    'best_params': best_params,
+                    'best_score': best_score,
+                    'original_params': original_params,
+                    'bounds': filtered_bounds,
+                    'iterations': iterations,
+                    'all_results': [
+                        {'params': dict(res['params']), 'target': res['target']}
+                        for res in optimizer.res
+                    ]
+                }
+                
+                logger.info(f"Optimization complete for {component_name}: score={best_score:.4f}")
+                return best_params
             
         except Exception as e:
-            logger.error(f"Optimization failed for '{agent_name}': {str(e)}")
+            logger.error(f"Optimization failed for {component_name}: {e}")
             # Rollback to original parameters
-            agent.set_hyperparameters(original_params)
-            raise
-    
-    def optimize_all_agents(self, 
-                           bounds_dict: Dict[str, Dict[str, tuple]], 
-                           iterations: int = 15) -> Dict[str, Dict[str, Any]]:
-        """
-        Optimize all agents sequentially.
-        
-        Args:
-            bounds_dict: Dictionary mapping agent names to their parameter bounds
-            iterations: Number of optimization iterations per agent
+            component.set_hyperparameters(original_params)
             
-        Returns:
-            Dictionary mapping agent names to their best parameters
+        return {}
+    
+    def optimize_all_components(self, 
+                               iterations_per_component: int = 15,
+                               parallel: bool = False) -> Dict[str, Any]:
         """
+        Optimize ALL optimizable components in the system.
+        """
+        optimizable_components = self.get_all_optimizable_components()
         results = {}
         
-        for agent_name in self.agents.keys():
-            if agent_name in bounds_dict:
-                try:
-                    best_params = self.optimize_agent(agent_name, bounds_dict[agent_name], iterations)
-                    results[agent_name] = best_params
-                except Exception as e:
-                    logger.error(f"Failed to optimize agent '{agent_name}': {str(e)}")
-                    results[agent_name] = None
-            else:
-                logger.warning(f"No bounds specified for agent '{agent_name}', skipping...")
+        logger.info(f"Starting comprehensive optimization of {len(optimizable_components)} components")
         
+        if parallel:
+            # Parallel optimization (use with caution - may cause conflicts)
+            import concurrent.futures
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {
+                    executor.submit(
+                        self.optimize_component, 
+                        name, 
+                        component, 
+                        None, 
+                        iterations_per_component
+                    ): name
+                    for name, component in optimizable_components.items()
+                }
+                
+                for future in concurrent.futures.as_completed(futures):
+                    component_name = futures[future]
+                    try:
+                        result = future.result()
+                        results[component_name] = result
+                    except Exception as e:
+                        logger.error(f"Parallel optimization failed for {component_name}: {e}")
+                        results[component_name] = {}
+        else:
+            # Sequential optimization (safer)
+            for name, component in optimizable_components.items():
+                try:
+                    result = self.optimize_component(name, component, None, iterations_per_component)
+                    results[name] = result
+                except Exception as e:
+                    logger.error(f"Sequential optimization failed for {name}: {e}")
+                    results[name] = {}
+        
+        # Store global results
+        self.global_optimization_results = {
+            'timestamp': time.time(),
+            'total_components': len(optimizable_components),
+            'successful_optimizations': len([r for r in results.values() if r]),
+            'results': results,
+            'performance_improvement': self._calculate_improvement()
+        }
+        
+        logger.info(f"Comprehensive optimization complete: {len([r for r in results.values() if r])}/{len(optimizable_components)} successful")
         return results
     
-    def get_optimization_history(self, agent_name: Optional[str] = None) -> Dict:
-        """Get optimization history for a specific agent or all agents."""
-        if agent_name:
-            return self.optimization_history.get(agent_name, {})
-        return self.optimization_history
+    def optimize_by_category(self, category: str, iterations: int = 20) -> Dict[str, Any]:
+        """
+        Optimize all components in a specific category.
+        """
+        category_mapping = {
+            'trading': ['ut_bot', 'gradient_trend', 'volume_sr', 'strategy_trainer'],
+            'analysis': ['scanner', 'momentum_scanner', 'continuous_scanner'],
+            'risk': ['risk_sentinel', 'arch_ctrl'],
+            'execution': ['execution_daemon', 'meta_agent'],
+            'system': ['syncbus'],
+            'ml': ['bayesian_oracle', 'rl_system']
+        }
+        
+        if category not in category_mapping:
+            logger.error(f"Unknown category: {category}")
+            return {}
+        
+        component_names = category_mapping[category]
+        optimizable_components = self.get_all_optimizable_components()
+        
+        results = {}
+        for name in component_names:
+            if name in optimizable_components:
+                result = self.optimize_component(name, optimizable_components[name], None, iterations)
+                results[name] = result
+        
+        logger.info(f"Category '{category}' optimization complete: {len(results)} components")
+        return results
     
-    def save_results(self, filename: str) -> None:
-        """Save optimization results to a JSON file."""
-        with open(filename, 'w') as f:
-            json.dump(self.optimization_history, f, indent=2)
-        logger.info(f"Results saved to {filename}")
+    def _calculate_improvement(self) -> Dict[str, float]:
+        """Calculate performance improvement from optimization."""
+        improvements = {}
+        
+        for component_name, history in self.optimization_history.items():
+            if 'best_score' in history and 'all_results' in history:
+                initial_scores = [r['target'] for r in history['all_results'][:3]]  # First 3 evaluations
+                best_score = history['best_score']
+                
+                if initial_scores:
+                    avg_initial = np.mean(initial_scores)
+                    improvement = (best_score - avg_initial) / abs(avg_initial) if avg_initial != 0 else 0
+                    improvements[component_name] = improvement
+        
+        return improvements
     
-    def load_results(self, filename: str) -> None:
-        """Load optimization results from a JSON file."""
-        with open(filename, 'r') as f:
-            self.optimization_history = json.load(f)
-        logger.info(f"Results loaded from {filename}")
-
-
-
-
-class OracleAgent(OptimizableAgent):
-    """Example oracle agent for demonstration."""
-    
-    def __init__(self):
-        self.prediction_window = 5
-        self.confidence_threshold = 0.7
-        self.model_complexity = 10
-    
-    def get_hyperparameters(self) -> Dict[str, Any]:
+    def get_optimization_report(self) -> Dict[str, Any]:
+        """Generate comprehensive optimization report."""
         return {
-            "prediction_window": self.prediction_window,
-            "confidence_threshold": self.confidence_threshold,
-            "model_complexity": self.model_complexity
+            'optimization_history': self.optimization_history,
+            'global_results': self.global_optimization_results,
+            'parameter_coverage': {
+                category: list(bounds.keys()) 
+                for category, bounds in self.parameter_bounds.items()
+            },
+            'total_parameters': sum(len(bounds) for bounds in self.parameter_bounds.values()),
+            'optimizable_components': list(self.get_all_optimizable_components().keys())
         }
     
-    def set_hyperparameters(self, params: Dict[str, Any]) -> None:
-        self.prediction_window = int(params.get("prediction_window", self.prediction_window))
-        self.confidence_threshold = float(params.get("confidence_threshold", self.confidence_threshold))
-        self.model_complexity = int(params.get("model_complexity", self.model_complexity))
+    def save_comprehensive_results(self, filename: str = "comprehensive_optimization_results.json"):
+        """Save all optimization results."""
+        report = self.get_optimization_report()
+        
+        with open(filename, 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+        
+        logger.info(f"Comprehensive optimization results saved to {filename}")
     
-    def validate_params(self, params: Dict[str, Any]) -> bool:
-        pred_window = params.get("prediction_window", self.prediction_window)
-        conf_thresh = params.get("confidence_threshold", self.confidence_threshold)
-        complexity = params.get("model_complexity", self.model_complexity)
-        
-        return (1 <= pred_window <= 20 and 
-                0.1 <= conf_thresh <= 0.95 and 
-                1 <= complexity <= 50)
+    def load_optimization_state(self, filename: str):
+        """Load previous optimization state."""
+        try:
+            with open(filename, 'r') as f:
+                state = json.load(f)
+            
+            self.optimization_history = state.get('optimization_history', {})
+            self.global_optimization_results = state.get('global_results', {})
+            
+            logger.info(f"Optimization state loaded from {filename}")
+        except Exception as e:
+            logger.error(f"Failed to load optimization state: {e}")
+
+
+# Integration helper for MirrorCore-X system
+def create_comprehensive_optimizer(sync_bus, components_dict) -> ComprehensiveMirrorOptimizer:
+    """
+    Create a comprehensive optimizer with all MirrorCore-X components.
     
-    def evaluate(self) -> float:
-        """Mock oracle evaluation."""
-        params = self.get_hyperparameters()
-        
-        # Simulate accuracy with optimal values around:
-        # prediction_window: 7, confidence_threshold: 0.8, model_complexity: 15
-        window_score = 90 - abs(params["prediction_window"] - 7) * 3
-        conf_score = 90 - abs(params["confidence_threshold"] - 0.8) * 100
-        complexity_score = 90 - abs(params["model_complexity"] - 15) * 2
-        
-        noise = np.random.normal(0, 1)
-        return max(0, (window_score + conf_score + complexity_score) / 3 + noise)
-
-
-# Usage example
-# Usage example
-
-if __name__ == "__main__":
-    # Fully wired: Optimize MomentumScanner with real data
-    import ccxt.pro as ccxt_async
-    from scanner import MomentumScanner, get_dynamic_config
-    import asyncio
-
-    # Initialize exchange (choose your preferred exchange)
-    exchange = ccxt_async.binance({
-        'enableRateLimit': True,
-        'rateLimit': 100,
-        'timeout': 30000,
-    })
-
-    # Load config using the dynamic loader
-    config = get_dynamic_config(market_type='crypto')
-
-    # Initialize scanner
-    scanner = MomentumScanner(exchange, config=config, market_type='crypto', quote_currency='USDT', min_volume_usd=1_000_000, top_n=30)
-    agents = {"scanner": scanner}
-    optimizer = MirrorOptimizerAgent(agents)
-
-    bounds = {
-        "momentum_period": (5, 50),
-        "rsi_window": (5, 50),
-        "volume_threshold": (0.5, 10.0)
+    Args:
+        sync_bus: The main SyncBus instance
+        components_dict: Dictionary of all system components
+    
+    Returns:
+        Configured ComprehensiveMirrorOptimizer instance
+    """
+    # Ensure all components are accessible
+    all_components = {
+        'sync_bus': sync_bus,
+        **components_dict
     }
+    
+    optimizer = ComprehensiveMirrorOptimizer(all_components)
+    
+    # Add any custom parameter bounds for specific instances
+    # This can be extended based on actual component implementations
+    
+    return optimizer
 
-    print("=== Optimizing MomentumScanner with real backtest ===")
-    best_params = optimizer.optimize_agent("scanner", bounds, iterations=60, init_points=12)
-    print(f"Best scanner params: {best_params}")
+
+# Example usage and testing
+if __name__ == "__main__":
+    # Test the comprehensive optimizer
+    print("=== Comprehensive MirrorOptimizer Test ===")
+    
+    # Mock components for testing
+    class MockOptimizableComponent(OptimizableAgent):
+        def __init__(self, name):
+            self.name = name
+            self.param1 = 0.5
+            self.param2 = 10
+            
+        def get_hyperparameters(self):
+            return {'param1': self.param1, 'param2': self.param2}
+        
+        def set_hyperparameters(self, params):
+            self.param1 = params.get('param1', self.param1)
+            self.param2 = params.get('param2', self.param2)
+        
+        def validate_params(self, params):
+            return all(isinstance(v, (int, float)) for v in params.values())
+        
+        def evaluate(self):
+            # Mock evaluation - optimal at param1=0.7, param2=15
+            return 1.0 - abs(self.param1 - 0.7) - abs(self.param2 - 15) * 0.01
+    
+    # Create mock system
+    mock_components = {
+        'scanner': MockOptimizableComponent('scanner'),
+        'strategy_trainer': MockOptimizableComponent('strategy_trainer'),
+        'arch_ctrl': MockOptimizableComponent('arch_ctrl')
+    }
+    
+    # Initialize comprehensive optimizer
+    optimizer = ComprehensiveMirrorOptimizer(mock_components)
+    
+    # Test optimization
+    results = optimizer.optimize_all_components(iterations_per_component=10)
+    
+    print(f"Optimization Results: {results}")
+    
+    # Generate report
+    report = optimizer.get_optimization_report()
+    print(f"Total parameters covered: {report['total_parameters']}")
+    print(f"Component categories: {len(report['parameter_coverage'])}")
+    
+    # Save results
+    optimizer.save_comprehensive_results("test_optimization_results.json")
+    
+    print("=== Test Complete ===")
