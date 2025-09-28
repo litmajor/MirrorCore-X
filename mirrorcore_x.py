@@ -16,7 +16,7 @@ import logging
 import time
 import json
 from typing import Dict, Any, Optional, List, Union, Tuple
-from collections import defaultdict, deque
+from collections import defaultdict, deque, Counter
 from pydantic import BaseModel, Field, ConfigDict
 from bayes_opt import BayesianOptimization
 import gymnasium as gym
@@ -57,6 +57,10 @@ class StrategyTrainerAgent:
 class UTSignalAgent: pass
 class GradientTrendAgent: pass
 class SupportResistanceAgent: pass
+
+class MirrorOptimizerAgent: # Mock for MirrorOptimizerAgent
+    def __init__(self): pass
+    def optimize(self, agent_config, data, target_metric): return {"best_params": {}, "best_score": 0.0}
 
 # RL library import for PPO
 try:
@@ -111,6 +115,13 @@ class TradeRecord(BaseModel):
     pnl: float = Field(description="Profit and loss")
     strategy: str = Field(default="UNSPECIFIED", description="Strategy used")
     timestamp: float = Field(default_factory=time.time, description="Trade timestamp")
+
+class PsychProfile(BaseModel): # Added PsychProfile model
+    model_config = ConfigDict(extra="ignore")
+    emotional_state: str
+    confidence_level: float = Field(ge=0.0, le=1.0)
+    stress_level: float = Field(ge=0.0, le=1.0)
+    recent_pnl: float
 
 # --- Market Data Pipeline (Separated from Agent State) ---
 class MarketDataProcessor:
@@ -431,7 +442,7 @@ class HighPerformanceSyncBus:
                 for update_dict in updates:
                     for key, value in update_dict.items():
                         combined_data[key] = value
-                
+
                 # Add any global states the agent might need
                 global_states = await self.get_all_states()
                 combined_data.update(global_states)
@@ -934,6 +945,8 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         mirror_mind_meta_agent = MirrorMindMetaAgent() # Assuming MirrorMindMetaAgent exists
         meta_agent = MetaAgent() # Assuming MetaAgent exists
         risk_sentinel = RiskSentinel() # Assuming RiskSentinel exists
+        mirror_optimizer = MirrorOptimizerAgent() # Assuming MirrorOptimizerAgent exists
+
 
         # Attach agents to SyncBus
         sync_bus.attach('scanner', scanner)
@@ -950,6 +963,7 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('mirror_mind_meta', mirror_mind_meta_agent)
         sync_bus.attach('meta_agent', meta_agent)
         sync_bus.attach('risk_sentinel', risk_sentinel)
+        sync_bus.attach('mirror_optimizer', mirror_optimizer)
 
 
         # Register strategies with trainer
@@ -970,7 +984,16 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
             'arch_ctrl': arch_ctrl,
             'execution_daemon': execution_daemon,
             'strategy_trainer': strategy_trainer,
-            'trade_analyzer': trade_analyzer
+            'trade_analyzer': trade_analyzer,
+            'mirror_optimizer': mirror_optimizer,
+            'ego_processor': ego_processor,
+            'fear_analyzer': fear_analyzer,
+            'self_awareness': self_awareness_agent,
+            'decision_mirror': decision_mirror,
+            'reflection_core': reflection_core,
+            'mirror_mind_meta': mirror_mind_meta_agent,
+            'meta_agent': meta_agent,
+            'risk_sentinel': risk_sentinel
         }
 
     except Exception as e:
@@ -1077,7 +1100,7 @@ class SelfAwarenessAgent(MirrorAgent):
         current_risk_tolerance = 1.0 - fear_level * (1.0 - ego_state.get('confidence', 0.5))
         self.awareness_state['drift'] = max(0.0, min(1.0, self.awareness_state['drift'] + (abs(current_risk_tolerance - self.behavioral_baseline['avg_risk_tolerance']) - 0.1) * 0.1))
         self.awareness_state['trust'] = max(0.0, min(1.0, self.awareness_state['trust'] + (0.1 - self.awareness_state['drift']) * 0.05))
-        
+
         # Count deviations (simplified)
         deviations = 0
         if current_risk_tolerance < 0.2 or current_risk_tolerance > 0.8:
@@ -1125,7 +1148,7 @@ class DecisionMirror(MirrorAgent):
                 self.decision_count += 1
             else:
                 self.selected_scenario = None
-        
+
         return {
             'selected_scenario': self.selected_scenario,
             'decision_count': self.decision_count
@@ -1566,6 +1589,8 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
+        mirror_optimizer = MirrorOptimizerAgent()
+
 
         # Attach agents to SyncBus
         sync_bus.attach('scanner', scanner)
@@ -1581,6 +1606,8 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         sync_bus.attach('mirror_mind_meta', mirror_mind_meta_agent)
         sync_bus.attach('meta_agent', meta_agent)
         sync_bus.attach('risk_sentinel', risk_sentinel)
+        sync_bus.attach('mirror_optimizer', mirror_optimizer)
+
 
         # Register strategies (assuming these agents exist)
         strategy_trainer.register_strategy("UT_BOT", UTSignalAgent())
@@ -1594,11 +1621,21 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
             'console_monitor': console_monitor,
             'command_interface': command_interface,
             'exchange': exchange,
+            # Make other key components accessible if needed
             'scanner': scanner,
             'arch_ctrl': arch_ctrl,
             'execution_daemon': execution_daemon,
             'strategy_trainer': strategy_trainer,
-            'trade_analyzer': trade_analyzer
+            'trade_analyzer': trade_analyzer,
+            'mirror_optimizer': mirror_optimizer,
+            'ego_processor': ego_processor,
+            'fear_analyzer': fear_analyzer,
+            'self_awareness': self_awareness_agent,
+            'decision_mirror': decision_mirror,
+            'reflection_core': reflection_core,
+            'mirror_mind_meta': mirror_mind_meta_agent,
+            'meta_agent': meta_agent,
+            'risk_sentinel': risk_sentinel
         }
 
     except Exception as e:
