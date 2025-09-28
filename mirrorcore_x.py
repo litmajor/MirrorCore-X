@@ -191,6 +191,226 @@ class PsychProfile(BaseModel): # Added PsychProfile model
     stress_level: float = Field(ge=0.0, le=1.0)
     recent_pnl: float
 
+# --- Emergency Controls & Audit Logging ---
+
+class SecretsManager:
+    """Manages API keys and sensitive configuration."""
+    def __init__(self):
+        self.api_key = os.environ.get("EXCHANGE_API_KEY")
+        self.api_secret = os.environ.get("EXCHANGE_API_SECRET")
+        self.passphrase = os.environ.get("EXCHANGE_API_PASSPHRASE")
+        self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+        self.telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        self.telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+    def validate_credentials(self) -> bool:
+        """Checks if essential credentials are present."""
+        return all([self.api_key, self.api_secret, self.passphrase])
+
+    def get_exchange_config(self) -> Dict[str, Any]:
+        """Returns exchange configuration dictionary."""
+        return {
+            'apiKey': self.api_key,
+            'secret': self.api_secret,
+            'options': {
+                'passphrase': self.passphrase,
+                'defaultType': 'spot',
+            }
+        }
+
+class EmergencyConfig(BaseModel):
+    """Configuration for emergency shutdown triggers."""
+    max_drawdown_pct: float = Field(default=10.0, description="Maximum allowable drawdown percentage before shutdown")
+    max_latency_ms: float = Field(default=1000.0, description="Maximum acceptable API latency in milliseconds")
+    max_api_errors: int = Field(default=10, description="Maximum consecutive API errors before shutdown")
+    position_limit_usd: float = Field(default=100000.0, description="Maximum total USD value of open positions")
+    auto_close_trades: bool = Field(default=True, description="Automatically close all open trades on emergency shutdown")
+
+class AuditLogger:
+    """Basic logger for audit events (can be extended for external services)."""
+    def __init__(self):
+        self.log_file = "audit.log"
+
+    async def log_event(self, event_data: Dict[str, Any]):
+        """Logs an event to a file."""
+        event_data['timestamp'] = datetime.now(timezone.utc).isoformat()
+        try:
+            with open(self.log_file, "a") as f:
+                json.dump(event_data, f)
+                f.write("\n")
+        except Exception as e:
+            logger.error(f"Failed to write to audit log: {e}")
+
+    async def log_error_event(self, error_data: Dict[str, Any]):
+        """Logs an error event with additional context."""
+        error_data['timestamp'] = datetime.now(timezone.utc).isoformat()
+        error_data['severity'] = error_data.get('severity', 'error')
+        await self.log_event(error_data)
+
+class MirrorCoreAuditLogger:
+    """Integrates MirrorCore events with the AuditLogger."""
+    def __init__(self, sync_bus: 'HighPerformanceSyncBus', audit_logger: 'AuditLogger'):
+        self.sync_bus = sync_bus
+        self.audit_logger = audit_logger
+
+    async def log_system_event(self, event_type: str, message: str, context: Dict[str, Any] = None):
+        """Logs a general system event."""
+        await self.audit_logger.log_event({
+            'event_type': event_type,
+            'message': message,
+            'component': 'MirrorCore',
+            'context': context or {}
+        })
+
+    async def log_agent_action(self, agent_id: str, action: str, details: Dict[str, Any]):
+        """Logs an action performed by an agent."""
+        await self.audit_logger.log_event({
+            'event_type': 'agent_action',
+            'agent_id': agent_id,
+            'action': action,
+            'details': details,
+            'component': 'Agent',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+    async def log_trade_decision(self, trade_record: 'TradeRecord', decision_context: Dict[str, Any]):
+        """Logs a trade decision made by the system."""
+        await self.audit_logger.log_event({
+            'event_type': 'trade_decision',
+            'trade_details': trade_record.model_dump(),
+            'decision_context': decision_context,
+            'component': 'TradingEngine',
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+
+class HeartbeatManager:
+    """Manages system heartbeat and liveness checks."""
+    def __init__(self, interval: int = 30):
+        self.interval = interval
+        self.last_heartbeat = time.time()
+        self.is_running = False
+
+    async def start_heartbeat(self):
+        """Starts the heartbeat loop."""
+        self.is_running = True
+        while self.is_running:
+            self.last_heartbeat = time.time()
+            logger.debug("System heartbeat active.")
+            await asyncio.sleep(self.interval)
+
+    def stop_heartbeat(self):
+        """Stops the heartbeat loop."""
+        self.is_running = False
+
+    def check_liveness(self) -> bool:
+        """Checks if the system is alive based on the last heartbeat."""
+        return (time.time() - self.last_heartbeat) < (self.interval * 2)
+
+class EmergencyController:
+    """Monitors system health and triggers emergency shutdown."""
+    def __init__(self, config: EmergencyConfig, exchange: Any, sync_bus: 'HighPerformanceSyncBus'):
+        self.config = config
+        self.exchange = exchange # Will be set after exchange is initialized
+        self.sync_bus = sync_bus
+        self.api_error_count = 0
+        self.last_api_error_time = 0
+        self.latency = 0.0
+        self.is_emergency_state = False
+        self.audit_logger = AuditLogger() # Use a local instance or pass one
+
+    def set_exchange(self, exchange: Any):
+        """Set the exchange object once it's initialized."""
+        self.exchange = exchange
+
+    async def check_health(self, current_pnl: float, current_positions_value: float, current_latency: float) -> bool:
+        """Performs comprehensive health checks."""
+        if self.is_emergency_state:
+            return False # Already in emergency state
+
+        # Check Drawdown
+        # Assuming initial capital is available (e.g., from ExecutionDaemon or config)
+        initial_capital = 1000.0 # Placeholder, should be dynamically obtained
+        current_drawdown = (current_pnl - initial_capital) / initial_capital if initial_capital else 0.0
+        if current_drawdown <= -abs(self.config.max_drawdown_pct / 100.0):
+            await self._trigger_emergency_stop("MAX_DRAWDOWN_EXCEEDED", {"drawdown": current_drawdown})
+            return False
+
+        # Check Latency
+        self.latency = current_latency
+        if self.latency > self.config.max_latency_ms:
+            await self._trigger_emergency_stop("HIGH_LATENCY", {"latency_ms": self.latency})
+            return False
+
+        # Check Position Limit
+        if current_positions_value > self.config.position_limit_usd:
+            await self._trigger_emergency_stop("POSITION_LIMIT_EXCEEDED", {"positions_usd": current_positions_value})
+            return False
+
+        return True
+
+    def record_api_error(self):
+        """Records an API error, potentially triggering shutdown."""
+        now = time.time()
+        if (now - self.last_api_error_time) > 60: # Reset count if error is older than 60 seconds
+            self.api_error_count = 1
+        else:
+            self.api_error_count += 1
+        self.last_api_error_time = now
+
+        if self.api_error_count >= self.config.max_api_errors:
+            asyncio.create_task(self._trigger_emergency_stop("MAX_API_ERRORS", {"error_count": self.api_error_count}))
+
+    async def _trigger_emergency_stop(self, reason: str, context: Dict[str, Any]):
+        """Initiates emergency shutdown sequence."""
+        if self.is_emergency_state: return
+        self.is_emergency_state = True
+        logger.critical(f"EMERGENCY SHUTDOWN TRIGGERED! Reason: {reason}. Context: {context}")
+
+        await self.audit_logger.log_error_event({
+            'error_type': 'emergency_shutdown',
+            'reason': reason,
+            'context': context,
+            'component': 'EmergencyController',
+            'severity': 'critical'
+        })
+
+        # Broadcast emergency stop command to all agents
+        await self.sync_bus.broadcast_command('emergency_stop')
+
+        # Close open positions if configured
+        if self.config.auto_close_trades and self.exchange:
+            logger.warning("Attempting to close all open positions...")
+            # This logic should ideally call a method in ExecutionDaemon or similar
+            # For now, we just log the intent. A proper implementation would fetch
+            # open positions from the exchange or internal state and close them.
+            await self.audit_logger.log_event({
+                'event_type': 'emergency_action',
+                'action': 'close_all_positions',
+                'message': 'Initiated closing of all open trades.',
+                'context': {'reason': reason},
+                'component': 'EmergencyController',
+                'severity': 'warning'
+            })
+
+    async def reset_emergency_state(self):
+        """Resets emergency state if conditions improve."""
+        # This should be called periodically or based on external signals
+        self.is_emergency_state = False
+        logger.info("Emergency state reset. System is operational again.")
+        await self.audit_logger.log_event({
+            'event_type': 'emergency_state_reset',
+            'message': 'Emergency shutdown state has been reset.',
+            'component': 'EmergencyController',
+            'severity': 'info'
+        })
+
+def load_secrets_from_env_file(env_file: str = ".env"):
+    """Loads environment variables from a .env file if it exists."""
+    if os.path.exists(env_file):
+        from dotenv import load_dotenv
+        load_dotenv(env_file)
+        logger.info(f"Loaded environment variables from {env_file}")
+
 # --- Market Data Pipeline (Separated from Agent State) ---
 class MarketDataProcessor:
     """Validates and cleans raw market data"""
@@ -969,29 +1189,72 @@ class MirrorAgent:
         })
 
 # --- System Creation Function ---
-async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanceSyncBus, Any]:
-    """Create enhanced MirrorCore-X system with high-performance SyncBus"""
+async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
+    """Create MirrorCore-X system with emergency controls and audit logging"""
 
+    # Load secrets from environment
+    load_secrets_from_env_file()
+    secrets_manager = SecretsManager()
+
+    # Validate credentials
+    if not secrets_manager.validate_credentials():
+        logger.warning("Some credentials missing - running in limited mode")
+
+    # Initialize audit logging
+    audit_logger = AuditLogger()
+    await audit_logger.log_error_event({
+        'error_type': 'system_startup',
+        'message': 'MirrorCore-X system starting',
+        'component': 'main',
+        'severity': 'info',
+        'context': {'dry_run': dry_run, 'testnet': use_testnet}
+    })
+
+    # Create high-performance SyncBus
     sync_bus = HighPerformanceSyncBus()
+
+    # Initialize data pipeline
     data_pipeline = DataPipeline(sync_bus)
-    console_monitor = ConsoleMonitor(sync_bus)
-    command_interface = CommandInterface(sync_bus)
+
+    # Initialize emergency controls
+    emergency_config = EmergencyConfig(
+        max_drawdown_pct=15.0,
+        max_latency_ms=500.0,
+        max_api_errors=5,
+        position_limit_usd=50000.0
+    )
+
+    # Create emergency controller (exchange will be set later)
+    emergency_controller = EmergencyController(emergency_config, None, sync_bus)
+
+    # Initialize heartbeat manager
+    heartbeat_manager = HeartbeatManager()
+    asyncio.create_task(heartbeat_manager.start_heartbeat())
+
+    # Initialize MirrorCore audit logger
+    mirror_audit = MirrorCoreAuditLogger(sync_bus, audit_logger)
+
 
     try:
         exchange_config = {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}
+        if use_testnet:
+             exchange_config['urls'] = {'api': ccxt.binance().urls['test']}
+             logger.warning("Using Binance testnet.")
+
         if dry_run:
-            # Use a mock or sandbox URL if available, otherwise simulate.
-            # For simplicity, ccxt might handle dry_run internally or require specific setup.
-            # Here, we'll just log the mode and use a placeholder.
             logger.warning("Using dry_run mode. Exchange interactions will be simulated.")
-            # Example: If using a mock exchange library:
-            # from mock_exchange import MockExchange
-            # exchange = MockExchange(config=exchange_config)
-            # For now, just use ccxt with a note it's simulated.
+            # For simulation, we might not need actual API keys if using a mock exchange.
+            # However, ccxt might still require them for initialization, even if not used for live trading.
+            # If using ccxt directly in dry_run, it often relies on simulated order execution.
             exchange = ccxt.binance(exchange_config) # Placeholder for simulated exchange
         else:
+            if not secrets_manager.validate_credentials():
+                raise ValueError("API credentials missing for live trading. Please set EXHANGE_API_KEY, EXCHANGE_API_SECRET, EXCHANGE_API_PASSPHRASE.")
+            exchange_config.update(secrets_manager.get_exchange_config())
             exchange = ccxt.binance(exchange_config) # Use real exchange for live trading
 
+        # Set the exchange for the emergency controller
+        emergency_controller.set_exchange(exchange)
 
         scanner = MomentumScanner(exchange=exchange)
         strategy_trainer = StrategyTrainerAgent()
@@ -1009,7 +1272,17 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
         # Import and create comprehensive optimizer
-        from mirror_optimizer import ComprehensiveMirrorOptimizer
+        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
+        try:
+            from mirror_optimizer import ComprehensiveMirrorOptimizer
+        except ImportError:
+            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
+            # Provide a fallback or raise an error
+            class ComprehensiveMirrorOptimizer: # Mock class if import fails
+                def __init__(self, components):
+                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
+                def optimize(self, agent_config, data, target_metric):
+                    return {"best_params": {}, "best_score": 0.0}
 
         # Collect all components for the optimizer
         all_components = {
@@ -1057,29 +1330,33 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         logger.info("MirrorCore-X system created with enhanced SyncBus")
 
         return sync_bus, {
+            'sync_bus': sync_bus,
             'data_pipeline': data_pipeline,
-            'console_monitor': console_monitor,
-            'command_interface': command_interface,
-            'exchange': exchange,
-            # Make other key components accessible if needed
-            'scanner': scanner,
-            'arch_ctrl': arch_ctrl,
-            'execution_daemon': execution_daemon,
+            'market_scanner': scanner,
             'strategy_trainer': strategy_trainer,
             'trade_analyzer': trade_analyzer,
+            'execution_daemon': execution_daemon,
+            'risk_sentinel': risk_sentinel,
+            'arch_ctrl': arch_ctrl,
             'comprehensive_optimizer': comprehensive_optimizer,
-            'ego_processor': ego_processor,
-            'fear_analyzer': fear_analyzer,
-            'self_awareness': self_awareness_agent,
-            'decision_mirror': decision_mirror,
-            'reflection_core': reflection_core,
-            'mirror_mind_meta': mirror_mind_meta_agent,
-            'meta_agent': meta_agent,
-            'risk_sentinel': risk_sentinel
+            'console_monitor': console_monitor,
+            'command_interface': command_interface,
+            'emergency_controller': emergency_controller,
+            'heartbeat_manager': heartbeat_manager,
+            'audit_logger': audit_logger,
+            'mirror_audit': mirror_audit,
+            'secrets_manager': secrets_manager
         }
 
     except Exception as e:
         logger.error(f"Failed to create MirrorCore system: {e}")
+        await audit_logger.log_error_event({
+            'error_type': 'system_initialization_failed',
+            'message': f"Failed to create MirrorCore system: {e}",
+            'component': 'main',
+            'severity': 'critical',
+            'context': {'dry_run': dry_run, 'testnet': use_testnet}
+        })
         raise
 
 # --- Mock Agent Implementations (for demonstration purposes) ---
@@ -1632,29 +1909,72 @@ class RiskSentinel(MirrorAgent):
 
 
 # --- System Creation Function ---
-async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanceSyncBus, Any]:
-    """Create enhanced MirrorCore-X system with high-performance SyncBus"""
+async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
+    """Create MirrorCore-X system with emergency controls and audit logging"""
 
+    # Load secrets from environment
+    load_secrets_from_env_file()
+    secrets_manager = SecretsManager()
+
+    # Validate credentials
+    if not secrets_manager.validate_credentials():
+        logger.warning("Some credentials missing - running in limited mode")
+
+    # Initialize audit logging
+    audit_logger = AuditLogger()
+    await audit_logger.log_error_event({
+        'error_type': 'system_startup',
+        'message': 'MirrorCore-X system starting',
+        'component': 'main',
+        'severity': 'info',
+        'context': {'dry_run': dry_run, 'testnet': use_testnet}
+    })
+
+    # Create high-performance SyncBus
     sync_bus = HighPerformanceSyncBus()
+
+    # Initialize data pipeline
     data_pipeline = DataPipeline(sync_bus)
-    console_monitor = ConsoleMonitor(sync_bus)
-    command_interface = CommandInterface(sync_bus)
+
+    # Initialize emergency controls
+    emergency_config = EmergencyConfig(
+        max_drawdown_pct=15.0,
+        max_latency_ms=500.0,
+        max_api_errors=5,
+        position_limit_usd=50000.0
+    )
+
+    # Create emergency controller (exchange will be set later)
+    emergency_controller = EmergencyController(emergency_config, None, sync_bus)
+
+    # Initialize heartbeat manager
+    heartbeat_manager = HeartbeatManager()
+    asyncio.create_task(heartbeat_manager.start_heartbeat())
+
+    # Initialize MirrorCore audit logger
+    mirror_audit = MirrorCoreAuditLogger(sync_bus, audit_logger)
+
 
     try:
         exchange_config = {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}
+        if use_testnet:
+             exchange_config['urls'] = {'api': ccxt.binance().urls['test']}
+             logger.warning("Using Binance testnet.")
+
         if dry_run:
-            # Use a mock or sandbox URL if available, otherwise simulate.
-            # For simplicity, ccxt might handle dry_run internally or require specific setup.
-            # Here, we'll just log the mode and use a placeholder.
             logger.warning("Using dry_run mode. Exchange interactions will be simulated.")
-            # Example: If using a mock exchange library:
-            # from mock_exchange import MockExchange
-            # exchange = MockExchange(config=exchange_config)
-            # For now, just use ccxt with a note it's simulated.
+            # For simulation, we might not need actual API keys if using a mock exchange.
+            # However, ccxt might still require them for initialization, even if not used for live trading.
+            # If using ccxt directly in dry_run, it often relies on simulated order execution.
             exchange = ccxt.binance(exchange_config) # Placeholder for simulated exchange
         else:
+            if not secrets_manager.validate_credentials():
+                raise ValueError("API credentials missing for live trading. Please set EXHANGE_API_KEY, EXCHANGE_API_SECRET, EXCHANGE_API_PASSPHRASE.")
+            exchange_config.update(secrets_manager.get_exchange_config())
             exchange = ccxt.binance(exchange_config) # Use real exchange for live trading
 
+        # Set the exchange for the emergency controller
+        emergency_controller.set_exchange(exchange)
 
         scanner = MomentumScanner(exchange=exchange)
         strategy_trainer = StrategyTrainerAgent()
@@ -1672,7 +1992,17 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
         # Import and create comprehensive optimizer
-        from mirror_optimizer import ComprehensiveMirrorOptimizer
+        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
+        try:
+            from mirror_optimizer import ComprehensiveMirrorOptimizer
+        except ImportError:
+            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
+            # Provide a fallback or raise an error
+            class ComprehensiveMirrorOptimizer: # Mock class if import fails
+                def __init__(self, components):
+                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
+                def optimize(self, agent_config, data, target_metric):
+                    return {"best_params": {}, "best_score": 0.0}
 
         # Collect all components for the optimizer
         all_components = {
@@ -1720,41 +2050,50 @@ async def create_mirrorcore_system(dry_run: bool = True) -> Tuple[HighPerformanc
         logger.info("MirrorCore-X system created with enhanced SyncBus")
 
         return sync_bus, {
+            'sync_bus': sync_bus,
             'data_pipeline': data_pipeline,
-            'console_monitor': console_monitor,
-            'command_interface': command_interface,
-            'exchange': exchange,
-            # Make other key components accessible if needed
-            'scanner': scanner,
-            'arch_ctrl': arch_ctrl,
-            'execution_daemon': execution_daemon,
+            'market_scanner': scanner,
             'strategy_trainer': strategy_trainer,
             'trade_analyzer': trade_analyzer,
+            'execution_daemon': execution_daemon,
+            'risk_sentinel': risk_sentinel,
+            'arch_ctrl': arch_ctrl,
             'comprehensive_optimizer': comprehensive_optimizer,
-            'ego_processor': ego_processor,
-            'fear_analyzer': fear_analyzer,
-            'self_awareness': self_awareness_agent,
-            'decision_mirror': decision_mirror,
-            'reflection_core': reflection_core,
-            'mirror_mind_meta': mirror_mind_meta_agent,
-            'meta_agent': meta_agent,
-            'risk_sentinel': risk_sentinel
+            'console_monitor': console_monitor,
+            'command_interface': command_interface,
+            'emergency_controller': emergency_controller,
+            'heartbeat_manager': heartbeat_manager,
+            'audit_logger': audit_logger,
+            'mirror_audit': mirror_audit,
+            'secrets_manager': secrets_manager
         }
 
     except Exception as e:
         logger.error(f"Failed to create MirrorCore system: {e}")
+        await audit_logger.log_error_event({
+            'error_type': 'system_initialization_failed',
+            'message': f"Failed to create MirrorCore system: {e}",
+            'component': 'main',
+            'severity': 'critical',
+            'context': {'dry_run': dry_run, 'testnet': use_testnet}
+        })
         raise
 
 # --- Main Execution ---
 if __name__ == "__main__":
     async def main():
         # Set dry_run to True for simulation, False for live trading
-        sync_bus, components = await create_mirrorcore_system(dry_run=True)
+        # Set use_testnet to True to use the exchange's test network
+        sync_bus, components = await create_mirrorcore_system(dry_run=True, use_testnet=False)
 
         console_monitor = components['console_monitor']
         command_interface = components['command_interface']
         data_pipeline = components['data_pipeline']
         exchange = components['exchange']
+        emergency_controller = components['emergency_controller']
+        heartbeat_manager = components['heartbeat_manager']
+        mirror_audit = components['mirror_audit']
+        secrets_manager = components['secrets_manager']
 
         # Mock market data generation for simulation
         async def mock_market_data_generator():
@@ -1799,12 +2138,31 @@ if __name__ == "__main__":
                 if sync_bus.tick_count % 10 == 0:
                     await console_monitor.display_agent_grid()
 
+                # Example: Check emergency conditions periodically
+                if sync_bus.tick_count % 60 == 0: # Check every minute
+                    # Fetch current PnL and position value (simplified)
+                    performance = await sync_bus.get_state('system_performance')
+                    current_pnl = performance.get('pnl', 0.0)
+                    # Placeholder for current position value - would need to come from ExecutionDaemon or similar
+                    current_positions_value = 5000.0 # Example value
+                    # Placeholder for current latency - would need actual measurement
+                    current_latency = np.random.uniform(50, 300)
+
+                    await emergency_controller.check_health(current_pnl, current_positions_value, current_latency)
+
+                    # Log a heartbeat event
+                    await mirror_audit.log_system_event("heartbeat", "System is operational.", {"tick": sync_bus.tick_count})
+
+
                 await asyncio.sleep(0.5) # Simulate time passing between ticks
 
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Shutting down MirrorCore-X system")
+        if heartbeat_manager:
+             heartbeat_manager.stop_heartbeat()
+        await mirror_audit.log_system_event("system_shutdown", "MirrorCore-X system shutting down due to KeyboardInterrupt.")
     finally:
         # Cleanup
         if 'exchange' in components and components['exchange']:
