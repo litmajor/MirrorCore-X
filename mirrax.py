@@ -402,52 +402,107 @@ class PerceptionLayer:
     
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update perception with scanner and market data, with robust error handling and input validation.
+        Update perception with enhanced scanner and market data, with robust error handling and input validation.
         Args:
             data: Global state with market_data.
         Returns:
             Dict with scanner_data and market_data.
         """
         try:
-            scanner_df = await asyncio.wait_for(self.scanner.scan_market(), timeout=10.0)
+            # Use enhanced scanning with multiple timeframes
+            scanner_df = await asyncio.wait_for(self.scanner.scan_market(timeframe='daily'), timeout=15.0)
             if not isinstance(scanner_df, pd.DataFrame):
                 logger.error("Scanner returned non-DataFrame result: %s", type(scanner_df))
                 return {}
             if scanner_df.empty:
                 logger.warning("Scanner returned empty DataFrame")
                 return {}
-            if not all(col in scanner_df.columns for col in ['symbol', 'close']):
-                logger.error(f"Scanner DataFrame missing required columns: {scanner_df.columns.tolist()}")
+            
+            # Enhanced validation for new columns
+            required_cols = ['symbol']
+            price_cols = ['close', 'price']
+            has_price = any(col in scanner_df.columns for col in price_cols)
+            
+            if not all(col in scanner_df.columns for col in required_cols) or not has_price:
+                logger.error(f"Scanner DataFrame missing required columns. Available: {scanner_df.columns.tolist()}")
                 return {}
+            
             scanner_data = []
             for idx, row in scanner_df.iterrows():
                 try:
                     row_dict = row.to_dict()
-                    # Validate required fields
-                    if not row_dict.get('symbol') or row_dict.get('close') is None:
-                        logger.warning(f"Malformed scanner row at index {idx}: {row_dict}")
+                    # Validate required fields with enhanced data support
+                    symbol = row_dict.get('symbol')
+                    price = row_dict.get('price') or row_dict.get('close')
+                    
+                    if not symbol or price is None:
+                        logger.warning(f"Malformed scanner row at index {idx}: missing symbol or price")
                         continue
-                    scanner_data.append(ScannerOutput(**{**row_dict, 'price': row_dict.get('close', 0.0)}).model_dump())
+                    
+                    # Enhanced data mapping for new scanner features
+                    enhanced_data = {
+                        'symbol': symbol,
+                        'price': float(price),
+                        'momentum_7d': row_dict.get('momentum_7d', row_dict.get('momentum_short', 0.0)),
+                        'signal': row_dict.get('signal', 'Neutral'),
+                        'rsi': row_dict.get('rsi', 50.0),
+                        'macd': row_dict.get('macd', 0.0),
+                        'timestamp': row_dict.get('timestamp', time.time()),
+                        # Enhanced features
+                        'enhanced_momentum_score': row_dict.get('enhanced_momentum_score', 0.0),
+                        'reversion_probability': row_dict.get('reversion_probability', 0.0),
+                        'cluster_validated': row_dict.get('cluster_validated', False),
+                        'trend_formation_signal': row_dict.get('trend_formation_signal', False),
+                        'volatility_regime': row_dict.get('volatility_regime', 'normal'),
+                        'momentum_strength': row_dict.get('momentum_strength', 'weak')
+                    }
+                    
+                    scanner_data.append(ScannerOutput(**enhanced_data).model_dump())
                 except Exception as row_exc:
                     logger.error(f"Error processing scanner row at index {idx}: {row_exc}")
+            
             await self.sync_bus.update_state('scanner_data', scanner_data)
+            
+            # Enhanced market data processing
             market_data = data.get('market_data', [])
             validated_data = []
             if market_data:
                 for i, md in enumerate(market_data):
                     try:
-                        validated_data.append(MarketData(**md).model_dump())
+                        # Support enhanced market data fields
+                        enhanced_md = {
+                            'symbol': md.get('symbol', 'UNKNOWN'),
+                            'price': float(md.get('price', 1.0)),
+                            'volume': float(md.get('volume', 0.0)),
+                            'high': float(md.get('high', md.get('price', 1.0))),
+                            'low': float(md.get('low', md.get('price', 1.0))),
+                            'open': float(md.get('open', md.get('price', 1.0))),
+                            'timestamp': float(md.get('timestamp', time.time())),
+                            'volatility': md.get('volatility', 0.01),
+                            'sentiment': md.get('sentiment', 0.0)
+                        }
+                        validated_data.append(MarketData(**enhanced_md).model_dump())
                     except Exception as md_exc:
                         logger.error(f"Malformed market_data at index {i}: {md} | Error: {md_exc}")
+                
                 await self.sync_bus.update_state('market_data', validated_data)
+            
             self.last_update = time.time()
-            logger.info(f"Perception updated: {len(scanner_data)} scanner records, {len(validated_data)} market records")
+            logger.info(f"Enhanced perception updated: {len(scanner_data)} scanner records, {len(validated_data)} market records")
+            
+            # Additional logging for enhanced features
+            enhanced_signals = len([s for s in scanner_data if s.get('cluster_validated', False)])
+            reversion_candidates = len([s for s in scanner_data if s.get('reversion_probability', 0) > 0.6])
+            
+            logger.info(f"Enhanced features: {enhanced_signals} cluster-validated, {reversion_candidates} reversion candidates")
+            
             return {'scanner_data': scanner_data, 'market_data': validated_data}
+            
         except asyncio.TimeoutError:
-            logger.error("Scanner timed out in PerceptionLayer.update")
+            logger.error("Enhanced scanner timed out in PerceptionLayer.update")
             return {}
         except Exception as e:
-            logger.error(f"Perception update failed: {str(e)}", exc_info=True)
+            logger.error(f"Enhanced perception update failed: {str(e)}", exc_info=True)
             return {}
 
 class EgoProcessor:
@@ -845,7 +900,7 @@ class TradingOracleEngine(OptimizableAgent):
     async def evaluate_trading_timelines(self, market_context: Dict[str, Any], 
                                        scanner_data: List[Dict], 
                                        rl_predictions: Optional[List[Dict]] = None) -> List[Dict]:
-        """Enhanced directive generation with RL integration"""
+        """Enhanced directive generation with RL integration and advanced scanner features"""
         try:
             directives = []
             scanner_df = pd.DataFrame(scanner_data)
@@ -867,12 +922,48 @@ class TradingOracleEngine(OptimizableAgent):
             for _, row in scanner_df.iterrows():
                 symbol = row['symbol']
                 traditional_signal = row['signal']
-                momentum = row['momentum_7d']
+                momentum = row.get('momentum_7d', 0.0)
                 price = row['price']
                 
-                # Traditional confidence calculation (your existing logic)
-                traditional_confidence = min(0.9, abs(weighted_signal) + 0.3 
-                                           if weighted_signal * momentum > 0 else 0.3)
+                # Enhanced features from new scanner
+                enhanced_momentum_score = row.get('enhanced_momentum_score', 0.0)
+                reversion_probability = row.get('reversion_probability', 0.0)
+                cluster_validated = row.get('cluster_validated', False)
+                trend_formation_signal = row.get('trend_formation_signal', False)
+                volatility_regime = row.get('volatility_regime', 'normal')
+                momentum_strength = row.get('momentum_strength', 'weak')
+                
+                # Enhanced confidence calculation incorporating new features
+                base_confidence = min(0.9, abs(weighted_signal) + 0.3 
+                                    if weighted_signal * momentum > 0 else 0.3)
+                
+                # Boost confidence for enhanced features
+                enhanced_confidence = base_confidence
+                if cluster_validated:
+                    enhanced_confidence += 0.2
+                if trend_formation_signal:
+                    enhanced_confidence += 0.15
+                if enhanced_momentum_score > 0.03:
+                    enhanced_confidence += 0.1
+                if momentum_strength == 'strong':
+                    enhanced_confidence += 0.1
+                
+                # Adjust for mean reversion scenarios
+                if reversion_probability > 0.7:
+                    enhanced_confidence += 0.2
+                    # Flip signal for mean reversion
+                    if traditional_signal in ['Strong Buy', 'Buy']:
+                        traditional_signal = 'Mean Reversion Sell'
+                    elif traditional_signal in ['Strong Sell', 'Sell']:
+                        traditional_signal = 'Mean Reversion Buy'
+                
+                # Adjust for volatility regime
+                if volatility_regime == 'high':
+                    enhanced_confidence *= 0.8  # Reduce confidence in high volatility
+                elif volatility_regime == 'low':
+                    enhanced_confidence *= 1.1  # Increase confidence in low volatility
+                
+                traditional_confidence = min(enhanced_confidence, 1.0)
                 
                 # Get RL prediction if available
                 rl_position = 0.0
@@ -881,7 +972,7 @@ class TradingOracleEngine(OptimizableAgent):
                     rl_position = rl_lookup[symbol]['rl_position']
                     rl_confidence = rl_lookup[symbol]['confidence']
                 
-                # Blend traditional and RL signals
+                # Blend traditional and RL signals with enhanced features
                 if RL_AVAILABLE and self.rl_integration and hasattr(self.rl_integration, 'meta_controller') and self.rl_integration.meta_controller:
                     # Use meta controller to blend decisions
                     try:
@@ -889,7 +980,7 @@ class TradingOracleEngine(OptimizableAgent):
                             rule_decision=traditional_signal,
                             rl_action=np.array([rl_position]),
                             confidence_score=traditional_confidence,
-                            market_regime="normal"
+                            market_regime=volatility_regime
                         )
                         final_position = meta_decision.get('final_position', self._rule_to_position(traditional_signal))
                         final_confidence = max(traditional_confidence, rl_confidence)
@@ -898,18 +989,41 @@ class TradingOracleEngine(OptimizableAgent):
                         logger.error(f"MetaController decision failed: {meta_exc}")
                         final_position = self._rule_to_position(traditional_signal)
                         final_confidence = traditional_confidence
-                        action_method = "rule_based_only"
+                        action_method = "enhanced_rule_based"
                 else:
-                    # Fall back to traditional signals only
-                    final_position = self._rule_to_position(traditional_signal)
+                    # Enhanced rule-based position calculation
+                    base_position = self._rule_to_position(traditional_signal)
+                    
+                    # Adjust position based on enhanced features
+                    position_multiplier = 1.0
+                    if cluster_validated:
+                        position_multiplier *= 1.2
+                    if trend_formation_signal:
+                        position_multiplier *= 1.1
+                    if enhanced_momentum_score > 0.05:
+                        position_multiplier *= 1.3
+                    
+                    # Special handling for mean reversion
+                    if reversion_probability > 0.7:
+                        base_position *= -1  # Reverse position for mean reversion
+                        position_multiplier *= 1.5  # Increase conviction
+                    
+                    final_position = np.clip(base_position * position_multiplier, -1.0, 1.0)
                     final_confidence = traditional_confidence
-                    action_method = "rule_based_only"
+                    action_method = "enhanced_rule_based"
+                
+                # Enhanced confidence threshold based on features
+                adaptive_threshold = self.confidence_threshold
+                if volatility_regime == 'high':
+                    adaptive_threshold += 0.1
+                elif momentum_strength == 'strong':
+                    adaptive_threshold -= 0.1
                 
                 # Skip if confidence too low
-                if final_confidence < self.confidence_threshold:
+                if final_confidence < adaptive_threshold:
                     continue
                 
-                # Determine action
+                # Determine action with enhanced logic
                 action = (
                     'buy' if final_position > 0.1 else
                     'sell' if final_position < -0.1 else
@@ -919,30 +1033,46 @@ class TradingOracleEngine(OptimizableAgent):
                 if action == 'hold':
                     continue
                 
-                # Calculate position size
-                amount = min(
-                    abs(final_position) * self.risk_weight * market_context.get('portfolio_value', 10000.0) / price,
-                    100.0
-                )
+                # Enhanced position sizing based on conviction and features
+                base_amount = abs(final_position) * self.risk_weight * market_context.get('portfolio_value', 10000.0) / price
+                
+                # Adjust amount based on enhanced features
+                amount_multiplier = 1.0
+                if cluster_validated and trend_formation_signal:
+                    amount_multiplier *= 1.2
+                if enhanced_momentum_score > 0.05:
+                    amount_multiplier *= 1.1
+                if reversion_probability > 0.8:
+                    amount_multiplier *= 1.3
+                
+                amount = min(base_amount * amount_multiplier, 100.0)
                 
                 directive = {
                     'symbol': symbol,
                     'action': action,
                     'amount': amount,
                     'price': price,
-                    'strategy': self.strategy_trainer.get_best_strategy() or 'integrated',
+                    'strategy': self.strategy_trainer.get_best_strategy() or 'enhanced_integrated',
                     'confidence': final_confidence,
                     'timestamp': time.time(),
-                    # Additional metadata for analysis
+                    # Traditional metadata
                     'traditional_signal': traditional_signal,
                     'rl_position': rl_position,
                     'final_position': final_position,
-                    'method': action_method
+                    'method': action_method,
+                    # Enhanced metadata
+                    'enhanced_momentum_score': enhanced_momentum_score,
+                    'reversion_probability': reversion_probability,
+                    'cluster_validated': cluster_validated,
+                    'trend_formation_signal': trend_formation_signal,
+                    'volatility_regime': volatility_regime,
+                    'momentum_strength': momentum_strength,
+                    'enhanced_confidence': enhanced_confidence
                 }
                 
                 directives.append(directive)
             
-            logger.info(f"Generated {len(directives)} integrated trading directives")
+            logger.info(f"Generated {len(directives)} enhanced integrated trading directives")
             return directives
             
         except Exception as e:
