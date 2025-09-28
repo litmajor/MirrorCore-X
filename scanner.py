@@ -192,8 +192,8 @@ def get_dynamic_config(market_type='crypto') -> TradingConfig:
     rsi_threshold=33.0,
     volume_multiplier=3.2
     )
-    
-    
+
+
 class PortfolioSimulator:
     """
     Simulates live portfolio equity curve, position breakdown, daily balance, CSV export, and plotting.
@@ -427,7 +427,7 @@ class TechnicalIndicators:
             "distance_to_nearest_e": (current - nearest_e) / current,
         }
         return 100 - (100 / (1 + rs))
-    
+
     @staticmethod
     def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> float:
         ema_fast = prices.ewm(span=fast, adjust=False).mean()
@@ -435,11 +435,11 @@ class TechnicalIndicators:
         macd_line = ema_fast - ema_slow
         signal_line = macd_line.ewm(span=signal, adjust=False).mean()
         return macd_line.iloc[-1] - signal_line.iloc[-1]
-    
+
     @staticmethod
     def calculate_momentum(prices: pd.Series, period: int) -> float:
         return prices.pct_change(periods=period).iloc[-1]
-    
+
     @staticmethod
     def calculate_ichimoku(df: pd.DataFrame) -> pd.DataFrame:
         if len(df) < 26:
@@ -720,7 +720,7 @@ class TechnicalIndicators:
 
 class MarketDataFetcher:
     """Handles all market data fetching operations"""
-    
+
     def __init__(self, exchange, config: TradingConfig):
         self.exchange = exchange
         self.config = config
@@ -728,7 +728,7 @@ class MarketDataFetcher:
         self.cache_expiry = 300
         self.semaphore = asyncio.Semaphore(config.max_concurrent_requests)
         self.rate_limit_errors = 0
-    
+
     async def fetch_markets(self, market_type: str = 'crypto', quote_currency: str = 'USDT') -> List[str]:
         async with self.semaphore:
             for attempt in range(self.config.retry_attempts):
@@ -753,7 +753,7 @@ class MarketDataFetcher:
                         logger.error("Failed to fetch markets after all retries")
                         return []
         return []
-    
+
     def _is_valid_market(self, market: dict, market_type: str, quote_currency: str) -> bool:
         if market_type == 'crypto':
             return (
@@ -773,7 +773,7 @@ class MarketDataFetcher:
                 market.get('symbol', '') in major_pairs
             )
         return False
-    
+
     async def fetch_ohlcv(self, symbol: str, timeframe: str = '1d', limit: int = 100) -> Optional[pd.DataFrame]:
         cache_key = f"{symbol}:{timeframe}:{limit}"
         if cache_key in self.cache:
@@ -1009,7 +1009,7 @@ class SignalClassifier:
             return "MACD Bearish"
 
         return "Neutral"
-    
+
     @staticmethod
     def calculate_signal_strength(
         momentum_short: float,
@@ -1139,7 +1139,7 @@ class MomentumScanner(OptimizableAgent):
         portfolio_return = (top_signals['avg_return_7d'] * weight_per_asset).sum()
         return initial_capital * (1 + portfolio_return / 100)
     """Main scanner class with improved architecture"""
-    
+
     def __init__(
         self,
         exchange,
@@ -1151,7 +1151,7 @@ class MomentumScanner(OptimizableAgent):
     ):
         """
         Initialize the MomentumScanner with exchange and configuration settings.
-        
+
         Args:
             exchange: CCXT async exchange instance
             config: Trading configuration (optional, defaults to dynamic config)
@@ -1308,13 +1308,364 @@ class MomentumScanner(OptimizableAgent):
 
 # Add this method to the MomentumScanner class:
 
-    async def scan_multi_timeframe(self, timeframes: Optional[list] = None, full_analysis: bool = True, save_results: bool = True) -> pd.DataFrame:
+    async def scan_market(self, timeframe: str = "daily", top_n: Optional[int] = None) -> pd.DataFrame:
+        """
+        Enhanced scan_market method with multi-timeframe analysis and advanced signal detection.
+        """
+        if top_n is None:
+            top_n = self.top_n
+
+        # Get market symbols
+        symbols = await self.data_fetcher.fetch_markets(self.market_type, self.quote_currency)
+        if not symbols:
+            logger.error("No symbols fetched from market")
+            return pd.DataFrame()
+
+        # Use specified timeframe or default
+        if timeframe not in self.config.timeframes:
+            logger.warning(f"Unknown timeframe {timeframe}, using 'daily'")
+            timeframe = 'daily'
+
+        ccxt_timeframe = self.config.timeframes[timeframe]
+        results = []
+
+        # Process symbols with progress tracking
+        with tqdm(total=len(symbols), desc=f"Enhanced scanning {self.market_type} market ({timeframe})") as pbar:
+            for symbol in symbols:
+                try:
+                    df = await self.data_fetcher.fetch_ohlcv(symbol, ccxt_timeframe, limit=self.config.lookback_window)
+                    if df is None or len(df) < 20:
+                        pbar.update(1)
+                        continue
+
+                    # Add all technical indicators
+                    df = TechnicalIndicators.add_all_indicators(df)
+
+                    # Check if we have enough data after adding indicators
+                    if len(df) < 20:
+                        pbar.update(1)
+                        continue
+
+                    # Calculate momentum periods for this timeframe
+                    market_key = self.market_type
+                    if market_key not in self.config.momentum_periods:
+                        market_key = 'crypto'  # fallback
+
+                    if timeframe not in self.config.momentum_periods[market_key]:
+                        timeframe_key = 'daily'  # fallback
+                    else:
+                        timeframe_key = timeframe
+
+                    short_period = self.config.momentum_periods[market_key][timeframe_key]['short']
+                    long_period = self.config.momentum_periods[market_key][timeframe_key]['long']
+
+                    # Calculate metrics
+                    latest_data = df.iloc[-1]
+
+                    # Basic calculations
+                    momentum_short = TechnicalIndicators.calculate_momentum(df['close'], short_period)
+                    momentum_long = TechnicalIndicators.calculate_momentum(df['close'], long_period)
+                    rsi = TechnicalIndicators.calculate_rsi(df['close'])
+                    macd = TechnicalIndicators.calculate_macd(df['close'])
+
+                    # Volume analysis
+                    volume_sma = df['volume'].rolling(20).mean().iloc[-1]
+                    volume_ratio = latest_data['volume'] / volume_sma if volume_sma > 0 else 1.0
+
+                    # Technical indicators
+                    ichimoku_bullish = latest_data.get('cloud_green', 0) == 1
+                    vwap = latest_data.get('vwap', latest_data['close'])
+                    vwap_bullish = latest_data['close'] > vwap
+
+                    # EMA crossover
+                    ema_5 = latest_data.get('ema_5', latest_data['close'])
+                    ema_13 = latest_data.get('ema_13', latest_data['close'])
+                    ema_crossover = ema_5 > ema_13
+
+                    # Volume profile and POC
+                    volume_hist, poc_price = TechnicalIndicators.calculate_volume_profile(df)
+                    poc_distance = (latest_data['close'] - poc_price) / poc_price if poc_price else 0
+
+                    # Fibonacci analysis
+                    fib_data = TechnicalIndicators.fib_levels(df)
+                    fib_confluence = TechnicalIndicators.fib_confluence_score(fib_data, poc_price, vwap)
+
+                    # Trend score
+                    trend_score = TechnicalIndicators.calculate_trend_score(df)
+
+                    # NEW: Enhanced analysis with multi-timeframe features
+                    enhanced_signals = self._analyze_timeframe_signals(symbol, df, timeframe_key)
+
+                    # Extract enhanced features
+                    momentum_signals = enhanced_signals.get('momentum', {})
+                    reversion_signals = enhanced_signals.get('reversion', {})
+                    regime_signals = enhanced_signals.get('regime', {})
+                    cluster_signals = enhanced_signals.get('clustering', {})
+
+                    # Classification
+                    signal_thresholds = self.config.signal_thresholds.get(market_key, {}).get(timeframe_key, {
+                        'momentum_short': 0.01, 'rsi_min': 33, 'rsi_max': 70, 'macd_min': 0
+                    })
+
+                    additional_indicators = {
+                        'ichimoku_bullish': ichimoku_bullish,
+                        'vwap_bullish': vwap_bullish,
+                        'ema_crossover': ema_crossover
+                    }
+
+                    signal = SignalClassifier.classify_momentum_signal(
+                        momentum_short, momentum_long, rsi, macd, signal_thresholds, additional_indicators
+                    )
+
+                    # State classification (new granular states)
+                    bb_position = (latest_data['close'] - latest_data.get('bb_lower', latest_data['close'])) / \
+                                  (latest_data.get('bb_upper', latest_data['close']) - latest_data.get('bb_lower', latest_data['close'])) \
+                                  if latest_data.get('bb_upper') != latest_data.get('bb_lower') else 0.5
+
+                    state = SignalClassifier.classify_state(
+                        momentum_short, momentum_long, momentum_long,  # using long momentum as 30d proxy
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Legacy signal classification
+                    legacy_signal = SignalClassifier.classify_legacy(
+                        momentum_long, momentum_long,  # using long as both 7d and 30d
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Composite scores
+                    composite_score = TechnicalIndicators.calculate_composite_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish, fib_confluence
+                    )
+
+                    confidence_score = TechnicalIndicators.calculate_confidence_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio
+                    )
+
+                    volume_composite_score = TechnicalIndicators.calculate_volume_composite_score(
+                        volume_ratio, volume_hist, poc_distance
+                    )
+
+                    # Additional calculations specific to the timeframe
+                    avg_volume_usd = latest_data['volume'] * latest_data['close']
+                    if timeframe == 'daily':
+                        momentum_7d = momentum_long
+                        avg_return_7d = df['close'].pct_change(7).iloc[-1] * 100 if len(df) >= 7 else 0
+                    else:
+                        momentum_7d = momentum_short
+                        avg_return_7d = momentum_short * 100
+
+                    # Store result with enhanced features
+                    result = {
+                        'symbol': symbol,
+                        'signal': signal,
+                        'state': state,
+                        'legacy_signal': legacy_signal,
+                        'momentum_short': momentum_short,
+                        'momentum_long': momentum_long,
+                        'momentum_7d': momentum_7d,
+                        'rsi': rsi,
+                        'macd': macd,
+                        'close': latest_data['close'],
+                        'price': latest_data['close'],  # Alias for compatibility
+                        'volume': latest_data['volume'],
+                        'volume_ratio': volume_ratio,
+                        'average_volume_usd': avg_volume_usd,
+                        'composite_score': composite_score,
+                        'confidence_score': confidence_score,
+                        'volume_composite_score': volume_composite_score,
+                        'trend_score': trend_score,
+                        'ichimoku_bullish': ichimoku_bullish,
+                        'vwap_bullish': vwap_bullish,
+                        'ema_crossover': ema_crossover,
+                        'poc_distance': poc_distance,
+                        'fib_confluence': fib_confluence,
+                        'avg_return_7d': avg_return_7d,
+                        'timeframe': timeframe,
+                        'bb_position': bb_position,
+
+                        # Enhanced features
+                        'enhanced_momentum_score': momentum_signals.get('momentum_score', 0),
+                        'cluster_validated': momentum_signals.get('cluster_validated', False),
+                        'momentum_strength': momentum_signals.get('strength', 'weak'),
+
+                        'reversion_probability': reversion_signals.get('reversion_probability', 0),
+                        'reversion_candidate': reversion_signals.get('reversion_candidate', False),
+                        'momentum_exhaustion': reversion_signals.get('momentum_exhaustion', False),
+                        'excessive_gain': reversion_signals.get('excessive_gain', False),
+                        'excessive_loss': reversion_signals.get('excessive_loss', False),
+
+                        'volatility_regime': regime_signals.get('volatility_regime', 'normal'),
+                        'trend_regime': regime_signals.get('trend_regime', 'sideways'),
+                        'volatility_ratio': regime_signals.get('volatility_ratio', 1.0),
+
+                        'cluster_detected': cluster_signals.get('cluster_detected', False),
+                        'cluster_strength': cluster_signals.get('cluster_strength', 0),
+                        'directional_cluster': cluster_signals.get('directional_cluster', False),
+                        'trend_formation_signal': cluster_signals.get('trend_formation_signal', False)
+                    }
+                    results.append(result)
+
+                except Exception as e:
+                    logger.debug(f"Error processing {symbol}: {str(e)}")
+
+                finally:
+                    pbar.update(1)
+
+        if not results:
+            logger.warning("No valid results obtained")
+            return pd.DataFrame()
+
+        # Convert to DataFrame and sort by enhanced composite score
+        df_results = pd.DataFrame(results)
+
+        # Enhanced sorting: prioritize cluster-validated momentum and high reversion probability
+        df_results['enhanced_score'] = (
+            df_results['composite_score'] +
+            df_results['enhanced_momentum_score'] * 10 +
+            df_results['cluster_validated'].astype(int) * 5 +
+            df_results['reversion_probability'] * 15 +
+            df_results['trend_formation_signal'].astype(int) * 8
+        )
+
+        df_results = df_results.sort_values('enhanced_score', ascending=False)
+
+        # Apply volume filter
+        if self.min_volume_usd > 0:
+            df_results = df_results[df_results['average_volume_usd'] >= self.min_volume_usd]
+
+        # Return top N results
+        df_results = df_results.head(top_n)
+
+        logger.info(f"Enhanced scan completed: {len(df_results)} {timeframe} signals with advanced features")
+        return df_results
+
+    def _analyze_timeframe_signals(self, symbol: str, df: pd.DataFrame, timeframe_key: str) -> dict:
+        """
+        Analyzes enhanced signals across different timeframes or within the current one.
+        This method would ideally fetch data for other timeframes or use pre-calculated indicators.
+        For simplicity, this example uses calculations based on the current dataframe.
+        """
+        # Placeholder for more advanced analysis
+        # In a real scenario, you might fetch data for higher timeframes here and compare.
+
+        # Momentum analysis
+        momentum_score = df['momentum_short'].iloc[-1] * 100 # Scaled momentum
+        cluster_validated = False
+        momentum_strength = 'weak'
+        if abs(momentum_score) > 5 and abs(momentum_score) < 15:
+            momentum_strength = 'moderate'
+        elif abs(momentum_score) >= 15:
+            momentum_strength = 'strong'
+
+        # Simple validation: if RSI is overbought/oversold and momentum is strong, it might be validated
+        if (df['rsi'].iloc[-1] > 70 or df['rsi'].iloc[-1] < 30) and abs(momentum_score) > 10:
+            cluster_validated = True
+
+        # Mean reversion analysis
+        reversion_probability = 0
+        reversion_candidate = False
+        momentum_exhaustion = False
+        excessive_gain = False
+        excessive_loss = False
+
+        rsi = df['rsi'].iloc[-1]
+        mom_short = df['momentum_short'].iloc[-1]
+        mom_long = df['momentum_long'].iloc[-1]
+
+        if rsi > 70 and mom_short < 0: # RSI overbought and momentum declining
+            reversion_probability = min(abs(mom_short) * 50, 0.8) + min(rsi / 100, 0.2)
+            reversion_candidate = True
+            momentum_exhaustion = True
+            excessive_gain = True
+        elif rsi < 30 and mom_short > 0: # RSI oversold and momentum rising
+            reversion_probability = min(abs(mom_short) * 50, 0.8) + min((100-rsi) / 100, 0.2)
+            reversion_candidate = True
+            momentum_exhaustion = True
+            excessive_loss = True
+        elif abs(mom_short) > 0.05 and abs(mom_long) > 0.03 and abs(mom_short) < abs(mom_long): # Momentum diverging
+             reversion_probability = 0.4
+             momentum_exhaustion = True
+
+
+        # Market regime analysis
+        volatility_regime = 'normal'
+        trend_regime = 'sideways'
+        volatility_ratio = df['volume_ratio'].iloc[-1]
+
+        if volatility_ratio > 1.5:
+            volatility_regime = 'high'
+        elif volatility_ratio < 0.7:
+            volatility_regime = 'low'
+
+        ema_50 = df.get('ema_50', pd.Series([df['close'].iloc[-1]]*len(df)))[-1]
+        ema_200 = df.get('ema_200', pd.Series([df['close'].iloc[-1]]*len(df)))[-1]
+
+        if ema_50 > ema_200 and df['momentum_short'].iloc[-1] > 0.01:
+            trend_regime = 'strong_up'
+        elif ema_50 < ema_200 and df['momentum_short'].iloc[-1] < -0.01:
+            trend_regime = 'strong_down'
+        elif ema_50 > ema_200:
+            trend_regime = 'up'
+        elif ema_50 < ema_200:
+            trend_regime = 'down'
+
+
+        # Candle clustering (simplified example: looking for specific patterns)
+        cluster_detected = False
+        cluster_strength = 0
+        directional_cluster = False
+        trend_formation_signal = False
+
+        # Example: Detect bullish engulfing pattern (simplified)
+        if len(df) >= 2:
+            prev_candle = df.iloc[-2]
+            curr_candle = df.iloc[-1]
+            if (prev_candle['close'] > prev_candle['open'] and # Previous bullish
+                curr_candle['close'] > curr_candle['open'] and # Current bullish
+                curr_candle['close'] > prev_candle['close'] and # Current closes higher
+                curr_candle['open'] < prev_candle['close'] and # Current opens within previous body
+                curr_candle['close'] > prev_candle['open'] and # Current closes above previous open
+                (curr_candle['close'] - curr_candle['open']) > (prev_candle['close'] - prev_candle['open']) * 1.2): # Current body larger
+                cluster_detected = True
+                directional_cluster = True
+                cluster_strength = 0.7
+                trend_formation_signal = True # Could indicate start of uptrend
+
+
+        return {
+            'momentum': {
+                'momentum_score': momentum_score,
+                'cluster_validated': cluster_validated,
+                'strength': momentum_strength
+            },
+            'reversion': {
+                'reversion_probability': reversion_probability,
+                'reversion_candidate': reversion_candidate,
+                'momentum_exhaustion': momentum_exhaustion,
+                'excessive_gain': excessive_gain,
+                'excessive_loss': excessive_loss
+            },
+            'regime': {
+                'volatility_regime': volatility_regime,
+                'trend_regime': trend_regime,
+                'volatility_ratio': volatility_ratio
+            },
+            'clustering': {
+                'cluster_detected': cluster_detected,
+                'cluster_strength': cluster_strength,
+                'directional_cluster': directional_cluster,
+                'trend_formation_signal': trend_formation_signal
+            }
+        }
+
+    def scan_multi_timeframe(self, timeframes: Optional[list] = None, full_analysis: bool = True, save_results: bool = True) -> pd.DataFrame:
         if timeframes is None:
             timeframes = ['1h', '4h', '1d']
         logger.info(f"Starting multi-timeframe scan: {timeframes}")
         tf_results = {}
         for tf in timeframes:
-            tf_results[tf] = await self.scan_market(tf, full_analysis, save_results=False)
+            tf_results[tf] = asyncio.run(self.scan_market(tf, full_analysis, save_results=False)) # Use asyncio.run for sync call
         valid_dfs = [df for df in tf_results.values() if not df.empty]
         if not valid_dfs:
             logger.warning("No valid results in any timeframe")
@@ -1445,7 +1796,7 @@ class MomentumScanner(OptimizableAgent):
             if (macd_cross and rsi_div) or new_high or new_low:
                 return True
         return False
-    
+
     async def scan_market(
         self,
         timeframe: str = 'daily',
@@ -1453,587 +1804,857 @@ class MomentumScanner(OptimizableAgent):
         save_results: bool = True
     ) -> pd.DataFrame:
         """
-        Optimized for parallel execution using asyncio and ThreadPoolExecutor for real-time trading.
+        Enhanced scan_market method with multi-timeframe analysis and advanced signal detection.
         """
-        logger.info(f"Starting market scan for {timeframe} timeframe [PARALLEL]")
+        if top_n is None:
+            top_n = self.top_n
+
+        # Get market symbols
         symbols = await self.data_fetcher.fetch_markets(self.market_type, self.quote_currency)
         if not symbols:
-            logger.error("No symbols available for scanning")
+            logger.error("No symbols fetched from market")
             return pd.DataFrame()
-        symbols = symbols[:min(len(symbols), 460)]
-        tf = self.config.timeframes.get(timeframe, '1d')
-        momentum_periods = self.config.momentum_periods[self.market_type].get(
-            timeframe, self.config.momentum_periods[self.market_type]['daily']
-        )
-        thresholds = self._adjust_thresholds(self.config.signal_thresholds[self.market_type].get(
-            timeframe, self.config.signal_thresholds[self.market_type]['daily']
-        ))
-        base_limit = max(momentum_periods.values()) + 50
-        fetch_limit = base_limit if not full_analysis else min(500, base_limit * 3)
 
-        # --- Parallelized symbol processing ---
-        import concurrent.futures
+        # Use specified timeframe or default
+        if timeframe not in self.config.timeframes:
+            logger.warning(f"Unknown timeframe {timeframe}, using 'daily'")
+            timeframe = 'daily'
 
-        async def process_symbol(symbol: str) -> Optional[dict]:
-            try:
-                df = await self.data_fetcher.fetch_ohlcv(symbol, tf, fetch_limit)
-                if df is None or len(df) < base_limit:
-                    return None
-                # Indicator calculation and scoring can be CPU-bound, so use ThreadPoolExecutor
-                def sync_analysis():
-                    df_ind = self.indicators.add_all_indicators(df)
-                    avg_volume_usd = self._calculate_volume_usd(df_ind)
-                    if avg_volume_usd < self.min_volume_usd:
-                        return None
-                    momentum_short = self.indicators.calculate_momentum(df_ind['close'], momentum_periods['short'])
-                    momentum_long = self.indicators.calculate_momentum(df_ind['close'], momentum_periods['long'])
-                    rsi = self.indicators.calculate_rsi(df_ind['close'])
-                    macd = self.indicators.calculate_macd(df_ind['close'])
-                    volume_ratio = df_ind['volume'].iloc[-1] / df_ind['volume'].iloc[-21:-1].mean() if len(df_ind) > 21 else 1.0
-                    trend_score = self.indicators.calculate_trend_score(df_ind)
-                    confidence_score = self.indicators.calculate_confidence_score(
-                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio
-                    )
-                    ichimoku_bullish = (
-                        'tenkan_sen' in df_ind and
-                        df_ind['close'].iloc[-1] > df_ind['senkou_a'].iloc[-1] and
-                        df_ind['close'].iloc[-1] > df_ind['senkou_b'].iloc[-1] and
-                        df_ind['tenkan_sen'].iloc[-1] > df_ind['kijun_sen'].iloc[-1] and
-                        df_ind['cloud_green'].iloc[-1] == 1
-                    )
-                    vwap_bullish = 'vwap' in df_ind and df_ind['close'].iloc[-1] > df_ind['vwap'].iloc[-1]
-                    rsi_bearish_div = self.indicators.rsi_bearish_divergence(df_ind)
-                    ema_5_13_bullish = 'ema_5' in df_ind and 'ema_13' in df_ind and df_ind['ema_5'].iloc[-1] > df_ind['ema_13'].iloc[-1]
-                    ema_9_21_bullish = 'ema_9' in df_ind and 'ema_21' in df_ind and df_ind['ema_9'].iloc[-1] > df_ind['ema_21'].iloc[-1]
-                    ema_50_200_bullish = 'ema_50' in df_ind and 'ema_200' in df_ind and df_ind['ema_50'].iloc[-1] > df_ind['ema_200'].iloc[-1]
-                    volume_hist = df_ind['volume_hist'].iloc[-1]
-                    poc_price = df_ind['poc_price'].iloc[-1]
-                    poc_distance = (df_ind['close'].iloc[-1] - poc_price) / poc_price if poc_price else 0
-                    # --- Add Fibonacci fields early so we can use fib_confluence in composite_score ---
-                    fib = TechnicalIndicators.fib_levels(df_ind, lookback=55)
-                    fib_confluence = TechnicalIndicators.fib_confluence_score(
-                        fib,
-                        poc=df_ind['poc_price'].iloc[-1] if 'poc_price' in df_ind else 0.0,
-                        vwap=df_ind['vwap'].iloc[-1] if 'vwap' in df_ind else 0.0
-                    )
-                    composite_score = self.indicators.calculate_composite_score(
-                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish, fib_confluence=fib_confluence
-                    )
-                    volume_composite_score = self.indicators.calculate_volume_composite_score(
-                        volume_ratio, volume_hist, poc_distance
-                    )
-                    signal = self.classifier.classify_momentum_signal(
-                        momentum_short, momentum_long, rsi, macd, thresholds,
-                        additional_indicators={
-                            'ichimoku_bullish': ichimoku_bullish,
-                            'vwap_bullish': vwap_bullish,
-                            'rsi_bearish_div': rsi_bearish_div,
-                            'ema_5_13_bullish': ema_5_13_bullish,
-                            'ema_9_21_bullish': ema_9_21_bullish,
-                            'ema_50_200_bullish': ema_50_200_bullish
-                        }
-                    )
-                    signal_strength = self.classifier.calculate_signal_strength(
-                        momentum_short, momentum_long, rsi, macd, volume_ratio
-                    )
-                    mom7d = self.indicators.calculate_momentum(df_ind['close'], 7) if len(df_ind) >= 8 else 0
-                    mom30d = self.indicators.calculate_momentum(df_ind['close'], 30) if len(df_ind) >= 31 else 0
-                    row = {
-                        'symbol': symbol,
-                        'price': df_ind['close'].iloc[-1],
-                        'momentum_short': momentum_short,
-                        'momentum_long': momentum_long,
-                        'rsi': rsi,
-                        'macd': macd,
-                        'volume_usd': avg_volume_usd,
-                        'volume_ratio': volume_ratio,
-                        'signal': signal,
-                        'signal_strength': signal_strength,
-                        'signal_state': SignalClassifier.classify_legacy(
-                            mom7d, mom30d, rsi, macd,
-                            (self._get_bollinger_position(df_ind) if ('bb_upper' in df_ind and self._get_bollinger_position(df_ind) is not None) else 0.5) or 0.5,
-                            volume_ratio
-                        ),
-                        'trend_score': trend_score,
-                        'confidence_score': confidence_score,
-                        'composite_score': composite_score,
-                        'volume_composite_score': volume_composite_score,
-                        'timeframe': timeframe,
-                        'timestamp': datetime.now(timezone.utc),
-                        'bb_position': self._get_bollinger_position(df_ind) if 'bb_upper' in df_ind else None,
-                        'trend_strength': df_ind['adx'].iloc[-1] if 'adx' in df_ind else None,
-                        'stoch_k': df_ind['stoch_k'].iloc[-1] if 'stoch_k' in df_ind else None,
-                        'stoch_d': df_ind['stoch_d'].iloc[-1] if 'stoch_d' in df_ind else None,
+        ccxt_timeframe = self.config.timeframes[timeframe]
+        results = []
+
+        # Process symbols with progress tracking
+        with tqdm(total=len(symbols), desc=f"Enhanced scanning {self.market_type} market ({timeframe})") as pbar:
+            for symbol in symbols:
+                try:
+                    df = await self.data_fetcher.fetch_ohlcv(symbol, ccxt_timeframe, limit=self.config.lookback_window)
+                    if df is None or len(df) < 20:
+                        pbar.update(1)
+                        continue
+
+                    # Add all technical indicators
+                    df = TechnicalIndicators.add_all_indicators(df)
+
+                    # Check if we have enough data after adding indicators
+                    if len(df) < 20:
+                        pbar.update(1)
+                        continue
+
+                    # Calculate momentum periods for this timeframe
+                    market_key = self.market_type
+                    if market_key not in self.config.momentum_periods:
+                        market_key = 'crypto'  # fallback
+
+                    if timeframe not in self.config.momentum_periods[market_key]:
+                        timeframe_key = 'daily'  # fallback
+                    else:
+                        timeframe_key = timeframe
+
+                    short_period = self.config.momentum_periods[market_key][timeframe_key]['short']
+                    long_period = self.config.momentum_periods[market_key][timeframe_key]['long']
+
+                    # Calculate metrics
+                    latest_data = df.iloc[-1]
+
+                    # Basic calculations
+                    momentum_short = TechnicalIndicators.calculate_momentum(df['close'], short_period)
+                    momentum_long = TechnicalIndicators.calculate_momentum(df['close'], long_period)
+                    rsi = TechnicalIndicators.calculate_rsi(df['close'])
+                    macd = TechnicalIndicators.calculate_macd(df['close'])
+
+                    # Volume analysis
+                    volume_sma = df['volume'].rolling(20).mean().iloc[-1]
+                    volume_ratio = latest_data['volume'] / volume_sma if volume_sma > 0 else 1.0
+
+                    # Technical indicators
+                    ichimoku_bullish = latest_data.get('cloud_green', 0) == 1
+                    vwap = latest_data.get('vwap', latest_data['close'])
+                    vwap_bullish = latest_data['close'] > vwap
+
+                    # EMA crossover
+                    ema_5 = latest_data.get('ema_5', latest_data['close'])
+                    ema_13 = latest_data.get('ema_13', latest_data['close'])
+                    ema_crossover = ema_5 > ema_13
+
+                    # Volume profile and POC
+                    volume_hist, poc_price = TechnicalIndicators.calculate_volume_profile(df)
+                    poc_distance = (latest_data['close'] - poc_price) / poc_price if poc_price else 0
+
+                    # Fibonacci analysis
+                    fib_data = TechnicalIndicators.fib_levels(df)
+                    fib_confluence = TechnicalIndicators.fib_confluence_score(fib_data, poc_price, vwap)
+
+                    # Trend score
+                    trend_score = TechnicalIndicators.calculate_trend_score(df)
+
+                    # NEW: Enhanced analysis with multi-timeframe features
+                    enhanced_signals = self._analyze_timeframe_signals(symbol, df, timeframe_key)
+
+                    # Extract enhanced features
+                    momentum_signals = enhanced_signals.get('momentum', {})
+                    reversion_signals = enhanced_signals.get('reversion', {})
+                    regime_signals = enhanced_signals.get('regime', {})
+                    cluster_signals = enhanced_signals.get('clustering', {})
+
+                    # Classification
+                    signal_thresholds = self.config.signal_thresholds.get(market_key, {}).get(timeframe_key, {
+                        'momentum_short': 0.01, 'rsi_min': 33, 'rsi_max': 70, 'macd_min': 0
+                    })
+
+                    additional_indicators = {
                         'ichimoku_bullish': ichimoku_bullish,
                         'vwap_bullish': vwap_bullish,
-                        'rsi_bearish_div': rsi_bearish_div,
-                        'ema_5_13_bullish': ema_5_13_bullish,
-                        'ema_9_21_bullish': ema_9_21_bullish,
-                        'ema_50_200_bullish': ema_50_200_bullish,
-                        'poc_price': poc_price,
-                        'poc_distance': poc_distance,
-                        'anchored_poc': df_ind['anchored_poc'].iloc[-1] if 'anchored_poc' in df_ind else None,
-                        'fixed_poc': df_ind['fixed_poc'].iloc[-1] if 'fixed_poc' in df_ind else None
+                        'ema_crossover': ema_crossover
                     }
-                    # --- Add Fibonacci fields ---
-                    row.update({
-                        "fib_direction":     fib.get("direction"),
-                        "fib_nearest_r":     fib.get("nearest_retracement"),
-                        "fib_nearest_e":     fib.get("nearest_extension"),
-                        "fib_confluence":    fib_confluence,
-                    })
-                    return row, df_ind
-                # Run indicator analysis in thread pool for speed
-                loop = asyncio.get_running_loop()
-                sync_result = await loop.run_in_executor(None, sync_analysis)
-                if sync_result is None:
-                    return None
-                result, df_ind = sync_result
-                if result:
-                    self.market_data[symbol] = df_ind
-                return result
-            except Exception as e:
-                logger.debug(f"Error processing {symbol}: {e}")
-                return None
 
-        # Limit concurrency to avoid rate limits
-        semaphore = asyncio.Semaphore(self.config.max_concurrent_requests)
-        async def sem_task(symbol):
-            async with semaphore:
-                return await process_symbol(symbol)
+                    signal = SignalClassifier.classify_momentum_signal(
+                        momentum_short, momentum_long, rsi, macd, signal_thresholds, additional_indicators
+                    )
 
-        # Use tqdm for progress bar
-        tasks = [sem_task(symbol) for symbol in symbols]
-        completed_results = []
-        for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning markets [PARALLEL]"):
-            result = await future
-            if result:
-                completed_results.append(result)
-        if not completed_results:
-            logger.warning("No valid results from market scan")
+                    # State classification (new granular states)
+                    bb_position = (latest_data['close'] - latest_data.get('bb_lower', latest_data['close'])) / \
+                                  (latest_data.get('bb_upper', latest_data['close']) - latest_data.get('bb_lower', latest_data['close'])) \
+                                  if latest_data.get('bb_upper') != latest_data.get('bb_lower') else 0.5
+
+                    state = SignalClassifier.classify_state(
+                        momentum_short, momentum_long, momentum_long,  # using long momentum as 30d proxy
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Legacy signal classification
+                    legacy_signal = SignalClassifier.classify_legacy(
+                        momentum_long, momentum_long,  # using long as both 7d and 30d
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Composite scores
+                    composite_score = TechnicalIndicators.calculate_composite_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish, fib_confluence
+                    )
+
+                    confidence_score = TechnicalIndicators.calculate_confidence_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio
+                    )
+
+                    volume_composite_score = TechnicalIndicators.calculate_volume_composite_score(
+                        volume_ratio, volume_hist, poc_distance
+                    )
+
+                    # Additional calculations specific to the timeframe
+                    avg_volume_usd = latest_data['volume'] * latest_data['close']
+                    if timeframe == 'daily':
+                        momentum_7d = momentum_long
+                        avg_return_7d = df['close'].pct_change(7).iloc[-1] * 100 if len(df) >= 7 else 0
+                    else:
+                        momentum_7d = momentum_short
+                        avg_return_7d = momentum_short * 100
+
+                    # Store result with enhanced features
+                    result = {
+                        'symbol': symbol,
+                        'signal': signal,
+                        'state': state,
+                        'legacy_signal': legacy_signal,
+                        'momentum_short': momentum_short,
+                        'momentum_long': momentum_long,
+                        'momentum_7d': momentum_7d,
+                        'rsi': rsi,
+                        'macd': macd,
+                        'close': latest_data['close'],
+                        'price': latest_data['close'],  # Alias for compatibility
+                        'volume': latest_data['volume'],
+                        'volume_ratio': volume_ratio,
+                        'average_volume_usd': avg_volume_usd,
+                        'composite_score': composite_score,
+                        'confidence_score': confidence_score,
+                        'volume_composite_score': volume_composite_score,
+                        'trend_score': trend_score,
+                        'ichimoku_bullish': ichimoku_bullish,
+                        'vwap_bullish': vwap_bullish,
+                        'ema_crossover': ema_crossover,
+                        'poc_distance': poc_distance,
+                        'fib_confluence': fib_confluence,
+                        'avg_return_7d': avg_return_7d,
+                        'timeframe': timeframe,
+                        'bb_position': bb_position,
+
+                        # Enhanced features
+                        'enhanced_momentum_score': momentum_signals.get('momentum_score', 0),
+                        'cluster_validated': momentum_signals.get('cluster_validated', False),
+                        'momentum_strength': momentum_signals.get('strength', 'weak'),
+
+                        'reversion_probability': reversion_signals.get('reversion_probability', 0),
+                        'reversion_candidate': reversion_signals.get('reversion_candidate', False),
+                        'momentum_exhaustion': reversion_signals.get('momentum_exhaustion', False),
+                        'excessive_gain': reversion_signals.get('excessive_gain', False),
+                        'excessive_loss': reversion_signals.get('excessive_loss', False),
+
+                        'volatility_regime': regime_signals.get('volatility_regime', 'normal'),
+                        'trend_regime': regime_signals.get('trend_regime', 'sideways'),
+                        'volatility_ratio': regime_signals.get('volatility_ratio', 1.0),
+
+                        'cluster_detected': cluster_signals.get('cluster_detected', False),
+                        'cluster_strength': cluster_signals.get('cluster_strength', 0),
+                        'directional_cluster': cluster_signals.get('directional_cluster', False),
+                        'trend_formation_signal': cluster_signals.get('trend_formation_signal', False)
+                    }
+                    results.append(result)
+
+                except Exception as e:
+                    logger.debug(f"Error processing {symbol}: {str(e)}")
+
+                finally:
+                    pbar.update(1)
+
+        if not results:
+            logger.warning("No valid results obtained")
             return pd.DataFrame()
-        df_results = pd.DataFrame(completed_results)
-        df_results['combined_score'] = (
-            df_results['composite_score'] * 0.5 +
-            df_results['volume_composite_score'] * 0.3 +
-            df_results['signal_strength'] * 0.2
+
+        # Convert to DataFrame and sort by enhanced composite score
+        df_results = pd.DataFrame(results)
+
+        # Enhanced sorting: prioritize cluster-validated momentum and high reversion probability
+        df_results['enhanced_score'] = (
+            df_results['composite_score'] +
+            df_results['enhanced_momentum_score'] * 10 +
+            df_results['cluster_validated'].astype(int) * 5 +
+            df_results['reversion_probability'] * 15 +
+            df_results['trend_formation_signal'].astype(int) * 8
         )
-        df_results = df_results.sort_values('combined_score', ascending=False)
-        self.scan_results = df_results.head(self.top_n)
-        if self.market_type == 'crypto':
-            await self._update_market_sentiment()
-        if save_results:
-            filename = f"scan_results_{timeframe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            self.scan_results.to_csv(filename, index=False)
-            logger.info(f"Results saved to {filename}")
-        logger.info(f"Market scan completed: {len(self.scan_results)} symbols analyzed [PARALLEL]")
-        return self.scan_results
-    
-    def _calculate_volume_usd(self, df: pd.DataFrame) -> float:
-        if self.market_type == 'crypto':
-            return float((df['volume'] * df['close']).mean())
-        return df['volume'].mean()
-    
-    def _get_bollinger_position(self, df: pd.DataFrame) -> Optional[float]:
-        if not all(col in df for col in ['bb_upper', 'bb_lower', 'close']):
-            return None
-        current_price = df['close'].iloc[-1]
-        bb_upper = df['bb_upper'].iloc[-1]
-        bb_lower = df['bb_lower'].iloc[-1]
-        if bb_upper == bb_lower:
-            return 0.5
-        return (current_price - bb_lower) / (bb_upper - bb_lower)
-    
-    def _adjust_thresholds(self, thresholds: dict) -> dict:
-        if not self.fear_greed_history:
-            return thresholds
-        fg_index = self.fear_greed_history[-1]
-        adjusted = thresholds.copy()
-        if fg_index > 75:
-            adjusted['momentum_short'] *= 1.2
-            adjusted['rsi_min'] = min(adjusted['rsi_min'] + 5, 60)
-        elif fg_index < 25:
-            adjusted['momentum_short'] *= 0.8
-            adjusted['rsi_min'] = max(adjusted['rsi_min'] - 5, 30)
-        return adjusted
-    
-    async def _update_market_sentiment(self):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get("https://api.alternative.me/fng/") as response:
-                    data = await response.json()
-                    fear_greed = int(data['data'][0]['value'])
-                    self.fear_greed_history.append(fear_greed)
-            cmc_api_key = os.getenv("CMC_API_KEY")
-            if cmc_api_key:
-                headers = {'X-CMC_PRO_API_KEY': cmc_api_key}
-                async with aiohttp.ClientSession(headers=headers) as session:
-                    url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
-                    async with session.get(url) as response:
-                        data = await response.json()
-                        btc_dominance = data['data']['btc_dominance']
-                        self.btc_dominance_history.append(btc_dominance)
-            self.timestamp_history.append(datetime.now(timezone.utc))
-        except Exception as e:
-            logger.warning(f"Failed to update market sentiment: {e}")
-    
-    def get_top_signals(self, signal_types: Optional[List[str]] = None, min_strength: float = 70) -> pd.DataFrame:
-        if self.scan_results.empty:
+
+        df_results = df_results.sort_values('enhanced_score', ascending=False)
+
+        # Apply volume filter
+        if self.min_volume_usd > 0:
+            df_results = df_results[df_results['average_volume_usd'] >= self.min_volume_usd]
+
+        # Return top N results
+        df_results = df_results.head(top_n)
+
+        logger.info(f"Enhanced scan completed: {len(df_results)} {timeframe} signals with advanced features")
+        return df_results
+
+    def _analyze_timeframe_signals(self, symbol: str, df: pd.DataFrame, timeframe_key: str) -> dict:
+        """
+        Analyzes enhanced signals across different timeframes or within the current one.
+        This method would ideally fetch data for other timeframes or use pre-calculated indicators.
+        For simplicity, this example uses calculations based on the current dataframe.
+        """
+        # Placeholder for more advanced analysis
+        # In a real scenario, you might fetch data for higher timeframes here and compare.
+
+        # Momentum analysis
+        momentum_score = df['momentum_short'].iloc[-1] * 100 # Scaled momentum
+        cluster_validated = False
+        momentum_strength = 'weak'
+        if abs(momentum_score) > 5 and abs(momentum_score) < 15:
+            momentum_strength = 'moderate'
+        elif abs(momentum_score) >= 15:
+            momentum_strength = 'strong'
+
+        # Simple validation: if RSI is overbought/oversold and momentum is strong, it might be validated
+        if (df['rsi'].iloc[-1] > 70 or df['rsi'].iloc[-1] < 30) and abs(momentum_score) > 10:
+            cluster_validated = True
+
+        # Mean reversion analysis
+        reversion_probability = 0
+        reversion_candidate = False
+        momentum_exhaustion = False
+        excessive_gain = False
+        excessive_loss = False
+
+        rsi = df['rsi'].iloc[-1]
+        mom_short = df['momentum_short'].iloc[-1]
+        mom_long = df['momentum_long'].iloc[-1]
+
+        if rsi > 70 and mom_short < 0: # RSI overbought and momentum declining
+            reversion_probability = min(abs(mom_short) * 50, 0.8) + min(rsi / 100, 0.2)
+            reversion_candidate = True
+            momentum_exhaustion = True
+            excessive_gain = True
+        elif rsi < 30 and mom_short > 0: # RSI oversold and momentum rising
+            reversion_probability = min(abs(mom_short) * 50, 0.8) + min((100-rsi) / 100, 0.2)
+            reversion_candidate = True
+            momentum_exhaustion = True
+            excessive_loss = True
+        elif abs(mom_short) > 0.05 and abs(mom_long) > 0.03 and abs(mom_short) < abs(mom_long): # Momentum diverging
+             reversion_probability = 0.4
+             momentum_exhaustion = True
+
+
+        # Market regime analysis
+        volatility_regime = 'normal'
+        trend_regime = 'sideways'
+        volatility_ratio = df['volume_ratio'].iloc[-1]
+
+        if volatility_ratio > 1.5:
+            volatility_regime = 'high'
+        elif volatility_ratio < 0.7:
+            volatility_regime = 'low'
+
+        ema_50 = df.get('ema_50', pd.Series([df['close'].iloc[-1]]*len(df)))[-1]
+        ema_200 = df.get('ema_200', pd.Series([df['close'].iloc[-1]]*len(df)))[-1]
+
+        if ema_50 > ema_200 and df['momentum_short'].iloc[-1] > 0.01:
+            trend_regime = 'strong_up'
+        elif ema_50 < ema_200 and df['momentum_short'].iloc[-1] < -0.01:
+            trend_regime = 'strong_down'
+        elif ema_50 > ema_200:
+            trend_regime = 'up'
+        elif ema_50 < ema_200:
+            trend_regime = 'down'
+
+
+        # Candle clustering (simplified example: looking for specific patterns)
+        cluster_detected = False
+        cluster_strength = 0
+        directional_cluster = False
+        trend_formation_signal = False
+
+        # Example: Detect bullish engulfing pattern (simplified)
+        if len(df) >= 2:
+            prev_candle = df.iloc[-2]
+            curr_candle = df.iloc[-1]
+            if (prev_candle['close'] > prev_candle['open'] and # Previous bullish
+                curr_candle['close'] > curr_candle['open'] and # Current bullish
+                curr_candle['close'] > prev_candle['close'] and # Current closes higher
+                curr_candle['open'] < prev_candle['close'] and # Current opens within previous body
+                curr_candle['close'] > prev_candle['open'] and # Current closes above previous open
+                (curr_candle['close'] - curr_candle['open']) > (prev_candle['close'] - prev_candle['open']) * 1.2): # Current body larger
+                cluster_detected = True
+                directional_cluster = True
+                cluster_strength = 0.7
+                trend_formation_signal = True # Could indicate start of uptrend
+
+
+        return {
+            'momentum': {
+                'momentum_score': momentum_score,
+                'cluster_validated': cluster_validated,
+                'strength': momentum_strength
+            },
+            'reversion': {
+                'reversion_probability': reversion_probability,
+                'reversion_candidate': reversion_candidate,
+                'momentum_exhaustion': momentum_exhaustion,
+                'excessive_gain': excessive_gain,
+                'excessive_loss': excessive_loss
+            },
+            'regime': {
+                'volatility_regime': volatility_regime,
+                'trend_regime': trend_regime,
+                'volatility_ratio': volatility_ratio
+            },
+            'clustering': {
+                'cluster_detected': cluster_detected,
+                'cluster_strength': cluster_strength,
+                'directional_cluster': directional_cluster,
+                'trend_formation_signal': trend_formation_signal
+            }
+        }
+
+    def scan_multi_timeframe(self, timeframes: Optional[list] = None, full_analysis: bool = True, save_results: bool = True) -> pd.DataFrame:
+        if timeframes is None:
+            timeframes = ['1h', '4h', '1d']
+        logger.info(f"Starting multi-timeframe scan: {timeframes}")
+        tf_results = {}
+        for tf in timeframes:
+            # Call scan_market directly as it's now a synchronous method within the class context
+            tf_results[tf] = self.scan_market(tf, full_analysis, save_results=False)
+        valid_dfs = [df for df in tf_results.values() if not df.empty]
+        if not valid_dfs:
+            logger.warning("No valid results in any timeframe")
             return pd.DataFrame()
-        df = self.scan_results.copy()
-        df = df[df['composite_score'] >= min_strength]
-        if signal_types:
-            df = df[df['signal'].isin(signal_types)]
-        return df.sort_values('composite_score', ascending=False)
-    
-    def generate_report(self) -> str:
+        common_symbols = set.intersection(*(set(df['symbol']) for df in valid_dfs))
+        multi_tf_df = pd.DataFrame()
+        for symbol in common_symbols:
+            rows = [df[df['symbol'] == symbol].iloc[0] for df in tf_results.values() if symbol in df['symbol'].values]
+            signals = [row['signal'] for row in rows]
+            bullish = all(s in ['Strong Buy', 'Buy', 'Weak Buy'] for s in signals)
+            bearish = all(s in ['Strong Sell', 'Sell', 'Weak Sell'] for s in signals)
+            neutral = all(s == 'Neutral' for s in signals)
+            confirmed = bullish or bearish
+            sig_counter = Counter(signals)
+            most_common_signal, confluence_count = sig_counter.most_common(1)[0]
+            base_row = rows[0].copy()
+            base_row['multi_tf_confirmed'] = confirmed
+            base_row['multi_tf_signals'] = signals
+            base_row['multi_tf_timeframes'] = timeframes
+            base_row['confluence_zone'] = confluence_count
+            base_row['confluence_signal'] = most_common_signal
+            base_row['strong_confluence'] = confluence_count == len(signals)
+            # Mark mean reversion if RSI > 70 and momentum is declining
+            base_row['mean_reversion_signal'] = self._detect_mean_reversion(base_row)
+            multi_tf_df = pd.concat([multi_tf_df, pd.DataFrame([base_row])], ignore_index=True)
+        self.scan_results = multi_tf_df
+        if save_results:
+            filename = f"scan_results_multitf_{'_'.join(timeframes)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            self.scan_results.to_csv(filename, index=False)
+            logger.info(f"Multi-timeframe results saved to {filename}")
+        return self.scan_results
+
+    def plot_comparative_performance(self, top_n: int = 5, bottom_n: int = 5, overlay_sentiment: bool = True):
         if self.scan_results.empty:
-            return "No scan results available."
-        df = self.scan_results
-        report = f"""
-=== MOMENTUM SCANNER REPORT ===
-Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
-Market Type: {self.market_type.upper()}
-Total Symbols Analyzed: {len(df)}
-
-=== SIGNAL DISTRIBUTION ===
-{df['signal'].value_counts().to_string()}
-
-=== TOP 10 OPPORTUNITIES ===
-"""
-        top_10 = df.head(10)
-        for _, row in top_10.iterrows():
-            momentum_pct = row['momentum_short'] * 100
-            multi_tf_note = ""
-            if 'multi_tf_confirmed' in row and bool(row['multi_tf_confirmed'].iloc[0] if hasattr(row['multi_tf_confirmed'], 'iloc') else row['multi_tf_confirmed']):
-                multi_tf_note = " [MULTI-TF CONFIRMED]"
-            elif 'multi_tf_signals' in row:
-                multi_tf_note = f" [Signals: {row['multi_tf_signals']}]"
-            report += f"""
-Symbol: {row['symbol']}{multi_tf_note}
-Signal: {row['signal']} (Composite Score: {row['composite_score']:.1f}/100, Volume Score: {row['volume_composite_score']:.1f}/100)
-State: {row.get('signal_state', 'N/A')}
-Trend Score: {row.get('trend_score', 'N/A')}/10
-Confidence: {row.get('confidence_score', 'N/A')}
-Price: ${row['price']:.4f}
-POC Price: ${row['poc_price']:.4f} (Distance: {row['poc_distance']*100:.2f}%)
-Short-term Momentum: {momentum_pct:+.2f}%
-RSI: {row['rsi']:.1f}
-Volume Ratio: {row['volume_ratio']:.2f}x
-EMA Crossovers: 5/13: {row['ema_5_13_bullish']}, 9/21: {row['ema_9_21_bullish']}, 50/200: {row['ema_50_200_bullish']}
-"""
-        if self.market_type == 'crypto' and self.fear_greed_history:
-            current_fg = self.fear_greed_history[-1]
-            report += f"""
-=== MARKET SENTIMENT ===
-Fear & Greed Index: {current_fg}/100 ({self._interpret_fear_greed(current_fg)})
-"""
-            if self.btc_dominance_history:
-                current_dom = self.btc_dominance_history[-1]
-                report += f"Bitcoin Dominance: {current_dom:.1f}%\n"
-        high_risk_signals = len(df[df['signal'].isin(['Strong Buy', 'Strong Sell'])])
-        moderate_risk_signals = len(df[df['signal'].isin(['Buy', 'Sell'])])
-        report += f"""
-=== RISK ASSESSMENT ===
-High Risk Signals: {high_risk_signals}
-Moderate Risk Signals: {moderate_risk_signals}
-Low Risk Signals: {len(df) - high_risk_signals - moderate_risk_signals}
-
-Average Composite Score: {df['composite_score'].mean():.1f}/100
-Average Volume Score: {df['volume_composite_score'].mean():.1f}/100
-Market Volatility: {df['momentum_short'].std() * 100:.2f}%
-"""
-        report += f"""
-=== TECHNICAL ANALYSIS SUMMARY ===
-Average RSI: {df['rsi'].mean():.1f}
-RSI Overbought (>70): {len(df[df['rsi'] > 70])} symbols
-RSI Oversold (<30): {len(df[df['rsi'] < 30])} symbols
-Positive MACD: {len(df[df['macd'] > 0])} symbols
-High Volume Activity (>1.5x avg): {len(df[df['volume_ratio'] > 1.5])} symbols
-Near POC (<5% distance): {len(df[abs(df['poc_distance']) < 0.05])} symbols
-"""
-        if self.market_type == 'crypto':
-            btc_pairs = len(df[df['symbol'].str.contains('BTC', case=False)])
-            eth_pairs = len(df[df['symbol'].str.contains('ETH', case=False)])
-            defi_tokens = len(df[df['symbol'].str.contains('UNI|AAVE|COMP|SUSHI|CRV', case=False)])
-            report += f"""
-=== SECTOR ANALYSIS ===
-BTC-related pairs: {btc_pairs}
-ETH-related pairs: {eth_pairs}
-DeFi tokens: {defi_tokens}
-Other altcoins: {len(df) - btc_pairs - eth_pairs - defi_tokens}
-"""
-        avg_momentum = df['momentum_short'].mean()
-        avg_rsi = df['rsi'].mean()
-        if avg_momentum > 0.05 and avg_rsi > 60:
-            market_condition = "BULLISH - Strong upward momentum with high RSI"
-        elif avg_momentum > 0.02 and 40 < avg_rsi < 60:
-            market_condition = "MODERATELY BULLISH - Steady upward trend"
-        elif -0.02 < avg_momentum < 0.02 and 40 < avg_rsi < 60:
-            market_condition = "NEUTRAL - Sideways movement"
-        elif avg_momentum < -0.02 and avg_rsi < 40:
-            market_condition = "BEARISH - Downward pressure with low RSI"
-        elif avg_momentum < -0.05 and avg_rsi < 30:
-            market_condition = "VERY BEARISH - Strong selling pressure"
+            logger.warning("No scan results for comparative plotting")
+            return
+        df = self.scan_results.copy()
+        if 'composite_score' in df:
+            df = df.sort_values('composite_score', ascending=False)
         else:
-            market_condition = "MIXED - Conflicting signals"
-        report += f"""
-=== MARKET CONDITION ===
-Overall Assessment: {market_condition}
-Recommended Action: {self._get_market_recommendation(avg_momentum, avg_rsi)}
+            df = df.sort_values('signal_strength', ascending=False)
+        top_syms = df.head(top_n)['symbol'].tolist()
+        bottom_syms = df.tail(bottom_n)['symbol'].tolist()
+        selected_syms = top_syms + bottom_syms
+        fig = go.Figure()
+        for symbol in selected_syms:
+            if symbol not in self.market_data:
+                continue
+            data = self.market_data[symbol]
+            fig.add_trace(
+                go.Scatter(
+                    x=data.index,
+                    y=data['close'],
+                    name=f"{symbol}",
+                    mode='lines'
+                )
+            )
+        fig.update_layout(
+            title="Comparative Performance: Top vs Worst Performers",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            showlegend=True,
+            template='plotly_dark'
+        )
+        if top_syms and top_syms[0] in self.market_data:
+            data = self.market_data[top_syms[0]]
+            if 'rsi' in data:
+                fig.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=data['rsi'],
+                        name='RSI',
+                        yaxis='y2',
+                        line=dict(color='orange', width=1.5)
+                    )
+                )
+            if 'macd' in data:
+                fig.add_trace(
+                    go.Scatter(
+                        x=data.index,
+                        y=data['macd'],
+                        name='MACD',
+                        yaxis='y2',
+                        line=dict(color='purple', width=1.5)
+                    )
+                )
+            fig.update_layout(
+                yaxis2=dict(
+                    title='RSI / MACD',
+                    overlaying='y',
+                    side='right'
+                )
+            )
+            if 'poc_price' in data and pd.notna(data['poc_price'].iloc[-1]):
+                fig.add_hline(
+                    y=data['poc_price'].iloc[-1],
+                    line_dash="dot",
+                    line_color="green",
+                    annotation_text="POC"
+                )
+        if overlay_sentiment and self.fear_greed_history and self.timestamp_history:
+            fig.add_trace(
+                go.Scatter(
+                    x=self.timestamp_history,
+                    y=[max([self.market_data[s]['close'].max() for s in selected_syms if s in self.market_data])] * len(self.timestamp_history),
+                    mode='text',
+                    text=[f'F&G: {v}' for v in self.fear_greed_history],
+                    name='Sentiment (F&G)',
+                    textposition='top center'
+                )
+            )
+        filename = f'comparative_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html'
+        fig.write_html(filename)
+        logger.info(f"Comparative performance plot saved to {filename}")
 
-=== TRADING RECOMMENDATIONS ===
-"""
-        strong_buys = df[df['signal'] == 'Strong Buy'].head(3)
-        if not strong_buys.empty:
-            report += "\nTOP STRONG BUY SIGNALS:\n"
-            for _, row in strong_buys.iterrows():
-                report += f"• {row['symbol']}: Composite Score {row['composite_score']:.0f}/100, "
-                report += f"Volume Score {row['volume_composite_score']:.0f}/100, Momentum {row['momentum_short']*100:+.2f}%, RSI {row['rsi']:.0f}\n"
-        overbought_signals = df[df['rsi'] > 75]
-        if not overbought_signals.empty:
-            report += f"\n⚠️  WARNING: {len(overbought_signals)} symbols are severely overbought (RSI > 75)\n"
-        extreme_momentum = df[abs(df['momentum_short']) > 0.10]
-        if not extreme_momentum.empty:
-            report += f"⚠️  WARNING: {len(extreme_momentum)} symbols showing extreme momentum (>10%)\n"
-        report += f"""
-=== PORTFOLIO SUGGESTIONS ===
-Diversification Score: {self._calculate_diversification_score(df):.1f}/10
-Suggested Position Size: {self._suggest_position_size(df):.1f}% per trade
-Risk-Adjusted Top Picks: {len(df[(df['composite_score'] > 75) & (df['rsi'] < 70)])} symbols
+    def detect_trend_reversal(self, symbol: str) -> bool:
+        if symbol not in self.market_data:
+            return False
+        df = self.market_data[symbol]
+        if 'macd' in df and 'rsi' in df:
+            macd = df['macd']
+            rsi_vals = df['rsi']
+            price = df['close']
+            macd_cross = (macd.diff().iloc[-1] * macd.iloc[-1] < 0)
+            rsi_div = (rsi_vals.iloc[-1] < rsi_vals.iloc[-5]) and (price.iloc[-1] > price.iloc[-5])
+            new_high = price.iloc[-1] > price.iloc[-10:-1].max()
+            new_low = price.iloc[-1] < price.iloc[-10:-1].min()
+            if (macd_cross and rsi_div) or new_high or new_low:
+                return True
+        return False
 
-=== DISCLAIMER ===
-This analysis is for educational purposes only and not financial advice.
-Always conduct your own research and consider your risk tolerance.
-Past performance does not guarantee future results.
-"""
-        return report
-    
-    def _interpret_fear_greed(self, value: int) -> str:
-        if value <= 25:
-            return "Extreme Fear"
-        elif value <= 45:
-            return "Fear"
-        elif value <= 55:
-            return "Neutral"
-        elif value <= 75:
-            return "Greed"
-        else:
-            return "Extreme Greed"
-    
-    def _get_market_recommendation(self, avg_momentum: float, avg_rsi: float) -> str:
-        if avg_momentum > 0.05 and avg_rsi > 70:
-            return "CAUTION - Market may be overheated, consider taking profits"
-        elif avg_momentum > 0.03 and 50 < avg_rsi < 70:
-            return "BUY - Good momentum with healthy RSI levels"
-        elif avg_momentum > 0.01 and 40 < avg_rsi < 60:
-            return "ACCUMULATE - Steady uptrend, good for DCA strategy"
-        elif -0.01 < avg_momentum < 0.01:
-            return "HOLD - Wait for clearer directional signals"
-        elif avg_momentum < -0.03 and avg_rsi < 40:
-            return "SELL/HEDGE - Bearish momentum, consider risk management"
-        elif avg_momentum < -0.05 and avg_rsi < 30:
-            return "OPPORTUNITY - Potential oversold bounce, but high risk"
-        else:
-            return "MIXED - Analyze individual signals carefully"
-    
-    def _calculate_diversification_score(self, df: pd.DataFrame) -> float:
-        if df.empty:
-            return 0
-        signal_diversity = len(df['signal'].unique()) / 7
-        momentum_std = df['momentum_short'].std()
-        momentum_diversity = min(momentum_std * 10, 1.0)
-        rsi_range = (df['rsi'].max() - df['rsi'].min()) / 100
-        diversity_score = (signal_diversity * 0.4 + momentum_diversity * 0.3 + rsi_range * 0.3) * 10
-        return min(diversity_score, 10.0)
-    
-    def _suggest_position_size(self, df: pd.DataFrame) -> float:
-        if df.empty:
-            return 2.0
-        volatility = df['momentum_short'].std()
-        base_size = 3.0
-        if volatility > 0.08:
-            return max(base_size * 0.5, 1.0)
-        elif volatility > 0.05:
-            return base_size * 0.75
-        elif volatility > 0.02:
-            return base_size
-        else:
-            return min(base_size * 1.5, 5.0)
-    
-    async def backtest_strategy(
+    def scan_market(
         self,
         timeframe: str = 'daily',
-        lookback_periods: int = 30,
-        initial_capital: float = 10000
+        full_analysis: bool = True,
+        save_results: bool = True,
+        top_n: Optional[int] = None
     ) -> pd.DataFrame:
         """
-        Realistic backtest: next candle open, fees/slippage, allocation, stop-loss/take-profit, equity curve.
+        Enhanced scan_market method with multi-timeframe analysis and advanced signal detection.
         """
-        if self.scan_results.empty:
-            logger.warning("No scan results available for backtesting")
+        if top_n is None:
+            top_n = self.top_n
+
+        # Get market symbols
+        symbols = asyncio.run(self.data_fetcher.fetch_markets(self.market_type, self.quote_currency))
+        if not symbols:
+            logger.error("No symbols fetched from market")
             return pd.DataFrame()
-        logger.info(f"Starting realistic backtest for {timeframe} strategy")
-        tf = self.config.timeframes.get(timeframe, '1d')
-        fee_rate = 0.0006  # 0.06% per side
-        slippage_rate = 0.0005  # 0.05% slippage
-        allocation_pct = 0.015  # 1.5% per trade
-        stop_loss_pct = -0.05  # -5%
-        take_profit_pct = 0.10  # +10%
+
+        # Use specified timeframe or default
+        if timeframe not in self.config.timeframes:
+            logger.warning(f"Unknown timeframe {timeframe}, using 'daily'")
+            timeframe = 'daily'
+
+        ccxt_timeframe = self.config.timeframes[timeframe]
         results = []
-        equity_curve = []
-        long_syms = self.scan_results[self.scan_results['signal'].isin(['Strong Buy', 'Buy', 'Weak Buy'])]['symbol'].tolist()
-        short_syms = self.scan_results[self.scan_results['signal'].isin(['Strong Sell', 'Sell', 'Weak Sell'])]['symbol'].tolist()
-        all_syms = list(set(long_syms + short_syms))[:20]
 
-        async def backtest_symbol(symbol: str) -> Optional[dict]:
-            try:
-                df_hist = await self.data_fetcher.fetch_ohlcv(symbol, tf, limit=lookback_periods + 50)
-                if df_hist is None or len(df_hist) < lookback_periods + 10:
-                    return None
-                symbol_data = self.scan_results[self.scan_results['symbol'] == symbol]
-                if symbol_data.empty:
-                    return None
-                signal_type = symbol_data['signal'].iloc[0]
-                composite_score = symbol_data['composite_score'].iloc[0]
-                # --- Realistic trade simulation ---
-                portfolio = initial_capital
-                trade_size = allocation_pct * portfolio
-                position = 0.0
-                entry_idx = None
-                entry_price = None
-                exit_idx = None
-                exit_price = None
-                trade_log = []
-                for i in range(lookback_periods):
-                    # Signal triggers at candle i, enter at next open (i+1)
-                    if i+1 >= len(df_hist):
-                        break
-                    open_price = df_hist['open'].iloc[i+1]
-                    close_price = df_hist['close'].iloc[i+1]
-                    high_price = df_hist['high'].iloc[i+1]
-                    low_price = df_hist['low'].iloc[i+1]
-                    # Entry
-                    if position == 0:
-                        position = trade_size / open_price
-                        entry_idx = i+1
-                        entry_price = open_price * (1 + fee_rate + slippage_rate)
-                        trade_log.append({'action': 'entry', 'price': entry_price, 'idx': entry_idx, 'size': position})
-                    # Check stop-loss/take-profit
-                    if position != 0:
-                        # For long
-                        if signal_type in ['Strong Buy', 'Buy', 'Weak Buy']:
-                            if entry_price is None:
-                                continue  # Skip if entry_price is not set
-                            stop_loss = entry_price * (1 + stop_loss_pct)
-                            take_profit = entry_price * (1 + take_profit_pct)
-                            if low_price <= stop_loss:
-                                exit_idx = i+1
-                                exit_price = stop_loss * (1 - fee_rate - slippage_rate)
-                                trade_log.append({'action': 'stop_loss', 'price': exit_price, 'idx': exit_idx, 'size': position})
-                                position = 0
-                            elif high_price >= take_profit:
-                                exit_idx = i+1
-                                exit_price = take_profit * (1 - fee_rate - slippage_rate)
-                                trade_log.append({'action': 'take_profit', 'price': exit_price, 'idx': exit_idx, 'size': position})
-                                position = 0
-                        # For short
-                        else:
-                            if entry_price is None:
-                                continue  # Skip if entry_price is not set
-                            stop_loss = entry_price * (1 - stop_loss_pct)
-                            take_profit = entry_price * (1 - take_profit_pct)
-                            if high_price >= stop_loss:
-                                exit_idx = i+1
-                                exit_price = stop_loss * (1 + fee_rate + slippage_rate)
-                                trade_log.append({'action': 'stop_loss', 'price': exit_price, 'idx': exit_idx, 'size': position})
-                                position = 0
-                            elif low_price <= take_profit:
-                                exit_idx = i+1
-                                exit_price = take_profit * (1 + fee_rate + slippage_rate)
-                                trade_log.append({'action': 'take_profit', 'price': exit_price, 'idx': exit_idx, 'size': position})
-                                position = 0
-                    # Exit at end of period if still open
-                    if i == lookback_periods-1 and position != 0:
-                        exit_idx = i+1
-                        exit_price = close_price * (1 - fee_rate - slippage_rate) if signal_type in ['Strong Buy', 'Buy', 'Weak Buy'] else close_price * (1 + fee_rate + slippage_rate)
-                        trade_log.append({'action': 'final_exit', 'price': exit_price, 'idx': exit_idx, 'size': position})
-                        position = 0
-                # Calculate PnL
-                pnl = 0.0
-                for j in range(len(trade_log)-1):
-                    entry = trade_log[j]
-                    exit = trade_log[j+1]
-                    if entry['action'] == 'entry' and exit['action'] in ['stop_loss', 'take_profit', 'final_exit']:
-                        if signal_type in ['Strong Buy', 'Buy', 'Weak Buy']:
-                            pnl += (exit['price'] - entry['price']) * entry['size']
-                        else:
-                            pnl += (entry['price'] - exit['price']) * entry['size']
-                # Compounding
-                portfolio += pnl
-                # Stats
-                total_return = (portfolio - initial_capital) / initial_capital * 100
-                win_rate = sum(1 for t in trade_log if t['action'] == 'take_profit') / max(1, len(trade_log)//2)
-                max_drawdown = self._calculate_max_drawdown(pd.Series([t['price'] for t in trade_log if t['action'] in ['entry', 'stop_loss', 'take_profit', 'final_exit']]))
-                volatility = np.std([t['price'] for t in trade_log if t['action'] in ['entry', 'stop_loss', 'take_profit', 'final_exit']])
-                sharpe_ratio = (total_return / volatility) if volatility != 0 else 0
-                equity_curve.append(portfolio)
-                return {
-                    'symbol': symbol,
-                    'signal': signal_type,
-                    'composite_score': composite_score,
-                    'total_return': total_return,
-                    'win_rate': win_rate * 100,
-                    'max_drawdown': max_drawdown * 100,
-                    'volatility': volatility,
-                    'sharpe_ratio': sharpe_ratio,
-                    'side': 'long' if signal_type in ['Strong Buy', 'Buy', 'Weak Buy'] else 'short',
-                    'equity_curve': equity_curve,
-                    'trade_log': trade_log
-                }
-            except Exception as e:
-                logger.debug(f"Backtest error for {symbol}: {e}")
-                return None
+        # Process symbols with progress tracking
+        with tqdm(total=len(symbols), desc=f"Enhanced scanning {self.market_type} market ({timeframe})") as pbar:
+            for symbol in symbols:
+                try:
+                    df = asyncio.run(self.data_fetcher.fetch_ohlcv(symbol, ccxt_timeframe, limit=self.config.lookback_window))
+                    if df is None or len(df) < 20:
+                        pbar.update(1)
+                        continue
 
-        tasks = [backtest_symbol(symbol) for symbol in all_syms]
-        for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Backtesting [realistic]"):
-            result = await future
-            if result:
-                results.append(result)
+                    # Add all technical indicators
+                    df = TechnicalIndicators.add_all_indicators(df)
+
+                    # Check if we have enough data after adding indicators
+                    if len(df) < 20:
+                        pbar.update(1)
+                        continue
+
+                    # Calculate momentum periods for this timeframe
+                    market_key = self.market_type
+                    if market_key not in self.config.momentum_periods:
+                        market_key = 'crypto'  # fallback
+
+                    if timeframe not in self.config.momentum_periods[market_key]:
+                        timeframe_key = 'daily'  # fallback
+                    else:
+                        timeframe_key = timeframe
+
+                    short_period = self.config.momentum_periods[market_key][timeframe_key]['short']
+                    long_period = self.config.momentum_periods[market_key][timeframe_key]['long']
+
+                    # Calculate metrics
+                    latest_data = df.iloc[-1]
+
+                    # Basic calculations
+                    momentum_short = TechnicalIndicators.calculate_momentum(df['close'], short_period)
+                    momentum_long = TechnicalIndicators.calculate_momentum(df['close'], long_period)
+                    rsi = TechnicalIndicators.calculate_rsi(df['close'])
+                    macd = TechnicalIndicators.calculate_macd(df['close'])
+
+                    # Volume analysis
+                    volume_sma = df['volume'].rolling(20).mean().iloc[-1]
+                    volume_ratio = latest_data['volume'] / volume_sma if volume_sma > 0 else 1.0
+
+                    # Technical indicators
+                    ichimoku_bullish = latest_data.get('cloud_green', 0) == 1
+                    vwap = latest_data.get('vwap', latest_data['close'])
+                    vwap_bullish = latest_data['close'] > vwap
+
+                    # EMA crossover
+                    ema_5 = latest_data.get('ema_5', latest_data['close'])
+                    ema_13 = latest_data.get('ema_13', latest_data['close'])
+                    ema_crossover = ema_5 > ema_13
+
+                    # Volume profile and POC
+                    volume_hist, poc_price = TechnicalIndicators.calculate_volume_profile(df)
+                    poc_distance = (latest_data['close'] - poc_price) / poc_price if poc_price else 0
+
+                    # Fibonacci analysis
+                    fib_data = TechnicalIndicators.fib_levels(df)
+                    fib_confluence = TechnicalIndicators.fib_confluence_score(fib_data, poc_price, vwap)
+
+                    # Trend score
+                    trend_score = TechnicalIndicators.calculate_trend_score(df)
+
+                    # NEW: Enhanced analysis with multi-timeframe features
+                    enhanced_signals = self._analyze_timeframe_signals(symbol, df, timeframe_key)
+
+                    # Extract enhanced features
+                    momentum_signals = enhanced_signals.get('momentum', {})
+                    reversion_signals = enhanced_signals.get('reversion', {})
+                    regime_signals = enhanced_signals.get('regime', {})
+                    cluster_signals = enhanced_signals.get('clustering', {})
+
+                    # Classification
+                    signal_thresholds = self.config.signal_thresholds.get(market_key, {}).get(timeframe_key, {
+                        'momentum_short': 0.01, 'rsi_min': 33, 'rsi_max': 70, 'macd_min': 0
+                    })
+
+                    additional_indicators = {
+                        'ichimoku_bullish': ichimoku_bullish,
+                        'vwap_bullish': vwap_bullish,
+                        'ema_crossover': ema_crossover
+                    }
+
+                    signal = SignalClassifier.classify_momentum_signal(
+                        momentum_short, momentum_long, rsi, macd, signal_thresholds, additional_indicators
+                    )
+
+                    # State classification (new granular states)
+                    bb_position = (latest_data['close'] - latest_data.get('bb_lower', latest_data['close'])) / \
+                                  (latest_data.get('bb_upper', latest_data['close']) - latest_data.get('bb_lower', latest_data['close'])) \
+                                  if latest_data.get('bb_upper') != latest_data.get('bb_lower') else 0.5
+
+                    state = SignalClassifier.classify_state(
+                        momentum_short, momentum_long, momentum_long,  # using long momentum as 30d proxy
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Legacy signal classification
+                    legacy_signal = SignalClassifier.classify_legacy(
+                        momentum_long, momentum_long,  # using long as both 7d and 30d
+                        rsi, macd, bb_position, volume_ratio
+                    )
+
+                    # Composite scores
+                    composite_score = TechnicalIndicators.calculate_composite_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish, fib_confluence
+                    )
+
+                    confidence_score = TechnicalIndicators.calculate_confidence_score(
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio
+                    )
+
+                    volume_composite_score = TechnicalIndicators.calculate_volume_composite_score(
+                        volume_ratio, volume_hist, poc_distance
+                    )
+
+                    # Additional calculations specific to the timeframe
+                    avg_volume_usd = latest_data['volume'] * latest_data['close']
+                    if timeframe == 'daily':
+                        momentum_7d = momentum_long
+                        avg_return_7d = df['close'].pct_change(7).iloc[-1] * 100 if len(df) >= 7 else 0
+                    else:
+                        momentum_7d = momentum_short
+                        avg_return_7d = momentum_short * 100
+
+                    # Store result with enhanced features
+                    result = {
+                        'symbol': symbol,
+                        'signal': signal,
+                        'state': state,
+                        'legacy_signal': legacy_signal,
+                        'momentum_short': momentum_short,
+                        'momentum_long': momentum_long,
+                        'momentum_7d': momentum_7d,
+                        'rsi': rsi,
+                        'macd': macd,
+                        'close': latest_data['close'],
+                        'price': latest_data['close'],  # Alias for compatibility
+                        'volume': latest_data['volume'],
+                        'volume_ratio': volume_ratio,
+                        'average_volume_usd': avg_volume_usd,
+                        'composite_score': composite_score,
+                        'confidence_score': confidence_score,
+                        'volume_composite_score': volume_composite_score,
+                        'trend_score': trend_score,
+                        'ichimoku_bullish': ichimoku_bullish,
+                        'vwap_bullish': vwap_bullish,
+                        'ema_crossover': ema_crossover,
+                        'poc_distance': poc_distance,
+                        'fib_confluence': fib_confluence,
+                        'avg_return_7d': avg_return_7d,
+                        'timeframe': timeframe,
+                        'bb_position': bb_position,
+
+                        # Enhanced features
+                        'enhanced_momentum_score': momentum_signals.get('momentum_score', 0),
+                        'cluster_validated': momentum_signals.get('cluster_validated', False),
+                        'momentum_strength': momentum_signals.get('strength', 'weak'),
+
+                        'reversion_probability': reversion_signals.get('reversion_probability', 0),
+                        'reversion_candidate': reversion_signals.get('reversion_candidate', False),
+                        'momentum_exhaustion': reversion_signals.get('momentum_exhaustion', False),
+                        'excessive_gain': reversion_signals.get('excessive_gain', False),
+                        'excessive_loss': reversion_signals.get('excessive_loss', False),
+
+                        'volatility_regime': regime_signals.get('volatility_regime', 'normal'),
+                        'trend_regime': regime_signals.get('trend_regime', 'sideways'),
+                        'volatility_ratio': regime_signals.get('volatility_ratio', 1.0),
+
+                        'cluster_detected': cluster_signals.get('cluster_detected', False),
+                        'cluster_strength': cluster_signals.get('cluster_strength', 0),
+                        'directional_cluster': cluster_signals.get('directional_cluster', False),
+                        'trend_formation_signal': cluster_signals.get('trend_formation_signal', False)
+                    }
+                    results.append(result)
+
+                except Exception as e:
+                    logger.debug(f"Error processing {symbol}: {str(e)}")
+
+                finally:
+                    pbar.update(1)
+
         if not results:
-            logger.warning("No backtest results generated")
+            logger.warning("No valid results obtained")
             return pd.DataFrame()
-        backtest_df = pd.DataFrame(results)
-        backtest_df = backtest_df.sort_values('sharpe_ratio', ascending=False)
-        # Output realistic equity curve
-        equity_curve_all = np.array([r['equity_curve'][-1] if r['equity_curve'] else initial_capital for r in results])
-        logger.info(f"Backtest completed. Realistic portfolio value: ${equity_curve_all.mean():,.2f}")
-        longs = backtest_df[backtest_df['side'] == 'long']
-        shorts = backtest_df[backtest_df['side'] == 'short']
-        def perf_stats(df, label):
-            if df.empty:
-                logger.info(f"{label}: No trades")
-                return
-            logger.info(f"{label}: count={len(df)}, win_rate={df['win_rate'].mean():.1f}%, volatility={df['volatility'].mean():.2f}%, max_drawdown={df['max_drawdown'].mean():.2f}%, sharpe={df['sharpe_ratio'].mean():.2f}")
-        perf_stats(longs, "Longs")
-        perf_stats(shorts, "Shorts")
-        logger.info(f"Long/Short ratio: {len(longs)}/{len(shorts)}")
-        if not backtest_df.empty:
-            logger.info(f"ALL: win_rate={backtest_df['win_rate'].mean():.1f}%, volatility={backtest_df['volatility'].mean():.2f}%, max_drawdown={backtest_df['max_drawdown'].mean():.2f}%, sharpe={backtest_df['sharpe_ratio'].mean():.2f}")
-        return backtest_df
-    
-    def _calculate_sharpe_ratio(self, returns: pd.Series, risk_free_rate: float = 0.02) -> float:
-        if returns.std() == 0:
-            return 0
-        excess_returns = returns.mean() - (risk_free_rate / 252)
-        return excess_returns / returns.std() * np.sqrt(252)
-    
-    def _calculate_max_drawdown(self, prices: pd.Series) -> float:
-        cumulative = (1 + prices.pct_change()).cumprod()
-        running_max = cumulative.expanding().max()
-        drawdown = (cumulative - running_max) / running_max
-        return drawdown.min()
-    
+
+        # Convert to DataFrame and sort by enhanced composite score
+        df_results = pd.DataFrame(results)
+
+        # Enhanced sorting: prioritize cluster-validated momentum and high reversion probability
+        df_results['enhanced_score'] = (
+            df_results['composite_score'] +
+            df_results['enhanced_momentum_score'] * 10 +
+            df_results['cluster_validated'].astype(int) * 5 +
+            df_results['reversion_probability'] * 15 +
+            df_results['trend_formation_signal'].astype(int) * 8
+        )
+
+        df_results = df_results.sort_values('enhanced_score', ascending=False)
+
+        # Apply volume filter
+        if self.min_volume_usd > 0:
+            df_results = df_results[df_results['average_volume_usd'] >= self.min_volume_usd]
+
+        # Return top N results
+        df_results = df_results.head(top_n)
+
+        logger.info(f"Enhanced scan completed: {len(df_results)} {timeframe} signals with advanced features")
+        return df_results
+
+    def get_strong_signals(self, timeframe: str = "daily", min_score: float = 70.0) -> pd.DataFrame:
+        """Get signals above the minimum composite score threshold with enhanced filtering"""
+        if self.scan_results.empty:
+            logger.warning("No scan results available. Run scan_market() first.")
+            return pd.DataFrame()
+
+        # Filter by timeframe if results contain multiple timeframes
+        df = self.scan_results
+        if 'timeframe' in df.columns:
+            df = df[df['timeframe'] == timeframe]
+
+        # Enhanced filtering: composite score + advanced features
+        strong_signals = df[
+            (df['composite_score'] >= min_score) |
+            (df['enhanced_momentum_score'] >= 0.03) |  # Strong momentum
+            (df['reversion_probability'] >= 0.7) |     # High reversion probability
+            (df['trend_formation_signal'] == True)     # Trend formation detected
+        ]
+
+        logger.info(f"Found {len(strong_signals)} enhanced strong signals for {timeframe} (min_score: {min_score})")
+        return strong_signals
+
+    def get_reversion_candidates(self, timeframe: str = "daily") -> pd.DataFrame:
+        """Get mean reversion candidates"""
+        if self.scan_results.empty:
+            logger.warning("No scan results available. Run scan_market() first.")
+            return pd.DataFrame()
+
+        df = self.scan_results
+        if 'timeframe' in df.columns:
+            df = df[df['timeframe'] == timeframe]
+
+        # Filter for mean reversion candidates
+        reversion_candidates = df[
+            (df['reversion_candidate'] == True) |
+            (df['excessive_gain'] == True) |
+            (df['excessive_loss'] == True) |
+            (df['momentum_exhaustion'] == True)
+        ]
+
+        logger.info(f"Found {len(reversion_candidates)} mean reversion candidates for {timeframe}")
+        return reversion_candidates.sort_values('reversion_probability', ascending=False)
+
+    def get_cluster_validated_momentum(self, timeframe: str = "daily") -> pd.DataFrame:
+        """Get momentum signals validated by candle clustering"""
+        if self.scan_results.empty:
+            logger.warning("No scan results available. Run scan_market() first.")
+            return pd.DataFrame()
+
+        df = self.scan_results
+        if 'timeframe' in df.columns:
+            df = df[df['timeframe'] == timeframe]
+
+        # Filter for cluster-validated momentum
+        cluster_momentum = df[
+            (df['cluster_validated'] == True) &
+            (df['directional_cluster'] == True) &
+            (df['enhanced_momentum_score'] > 0.02)
+        ]
+
+        logger.info(f"Found {len(cluster_momentum)} cluster-validated momentum signals for {timeframe}")
+        return cluster_momentum.sort_values('enhanced_momentum_score', ascending=False)
+
+    def analyze_market_conditions(self) -> Dict:
+        """Analyze overall market conditions based on scan results"""
+        if self.scan_results.empty:
+            return {'status': 'no_data'}
+
+        df = self.scan_results
+
+        # Market sentiment analysis
+        bullish_signals = len(df[df['signal'].isin(['Strong Buy', 'Buy', 'Weak Buy'])])
+        bearish_signals = len(df[df['signal'].isin(['Strong Sell', 'Sell', 'Weak Sell'])])
+        total_signals = len(df)
+
+        if total_signals == 0:
+            market_sentiment = 'neutral'
+        elif bullish_signals / total_signals > 0.6:
+            market_sentiment = 'bullish'
+        elif bearish_signals / total_signals > 0.6:
+            market_sentiment = 'bearish'
+        else:
+            market_sentiment = 'mixed'
+
+        # Volatility analysis
+        high_vol_count = len(df[df['volatility_regime'] == 'high'])
+        volatility_level = 'high' if high_vol_count / total_signals > 0.4 else 'normal'
+
+        # Trend analysis
+        strong_up_trends = len(df[df['trend_regime'] == 'strong_up'])
+        strong_down_trends = len(df[df['trend_regime'] == 'strong_down'])
+
+        if strong_up_trends > strong_down_trends * 1.5:
+            dominant_trend = 'uptrend'
+        elif strong_down_trends > strong_up_trends * 1.5:
+            dominant_trend = 'downtrend'
+        else:
+            dominant_trend = 'sideways'
+
+        # Momentum vs Mean Reversion bias
+        momentum_signals = len(df[df['enhanced_momentum_score'] > 0.02])
+        reversion_signals = len(df[df['reversion_candidate'] == True])
+
+        if momentum_signals > reversion_signals * 1.2:
+            market_bias = 'momentum'
+        elif reversion_signals > momentum_signals * 1.2:
+            market_bias = 'mean_reversion'
+        else:
+            market_bias = 'balanced'
+
+        return {
+            'market_sentiment': market_sentiment,
+            'volatility_level': volatility_level,
+            'dominant_trend': dominant_trend,
+            'market_bias': market_bias,
+            'total_signals': total_signals,
+            'bullish_ratio': bullish_signals / total_signals if total_signals > 0 else 0,
+            'bearish_ratio': bearish_signals / total_signals if total_signals > 0 else 0,
+            'high_volatility_ratio': high_vol_count / total_signals if total_signals > 0 else 0,
+            'momentum_signals': momentum_signals,
+            'reversion_signals': reversion_signals,
+            'cluster_validated_count': len(df[df['cluster_validated'] == True]),
+            'trend_formation_count': len(df[df['trend_formation_signal'] == True])
+        }
+
 
     def plot_analysis(self, save_path: Optional[str] = None):
         import pandas as pd
@@ -2280,10 +2901,10 @@ Past performance does not guarantee future results.
 async def main():
     """Main execution function with improved error handling"""
     logger.info("Starting Enhanced Momentum Scanner")
-    
+
     # Configuration
     config = get_dynamic_config()
-    
+
     # Try different exchanges in order of preference (crypto first)
     exchanges_to_try = [
         ('binance', getattr(ccxt_async, 'binance', None)),
@@ -2320,7 +2941,7 @@ async def main():
     if not exchange:
         logger.warning("No CCXT crypto exchange available, falling back to yfinance for crypto data.")
         exchange = YFinanceForexAdapter()
-    
+
     try:
         # Initialize scanner for crypto
         scanner = MomentumScanner(
@@ -2331,7 +2952,7 @@ async def main():
             min_volume_usd=500_000,  # Lower minimum for crypto
             top_n=30
         )
-        
+
         # Perform market scan
         logger.info("Starting comprehensive market scan...")
         results = await scanner.scan_market(
@@ -2339,26 +2960,26 @@ async def main():
             full_analysis=True,
             save_results=True
         )
-        
+
         if not results.empty:
             # Generate and print report
             report = scanner.generate_report()
             print(report)
-            
+
             # Generate analysis plots
             scanner.plot_analysis()
-            
+
             # Perform backtest
             logger.info("Starting strategy backtest...")
             backtest_results = await scanner.backtest_strategy(
                 timeframe='daily',
                 lookback_periods=67
             )
-            
+
             if not backtest_results.empty:
                 print("\n=== BACKTEST RESULTS ===")
                 print(backtest_results[['symbol', 'signal', 'sharpe_ratio', 'win_rate', 'total_return']].head(10))
-            
+
             # Initialize and run trading bot (dry run)
             trading_bot = TradingBot(
                 scanner=scanner,
@@ -2366,12 +2987,12 @@ async def main():
                 max_positions=10,
                 position_size_pct=0.03
             )
-            
+
             await trading_bot.execute_strategy('daily')
-            
+
         else:
             logger.warning("No results from market scan")
-        
+
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
     except Exception as e:
