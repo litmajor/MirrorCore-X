@@ -267,16 +267,19 @@ class SupportResistanceAgent(StrategyAgent):
         return {}
 
 
+# Always-initialized trainer instance
+trainer = StrategyTrainerAgent(
+    min_weight=0.1,
+    max_weight=1.0,
+    lookback_window=20,
+    pnl_scale_factor=0.1
+)
+
+from additional_strategies import register_additional_strategies
+register_additional_strategies(trainer)
+
 # Example usage
 if __name__ == "__main__":
-    # Initialize trainer
-    trainer = StrategyTrainerAgent(
-        min_weight=0.1,
-        max_weight=1.0,
-        lookback_window=20,
-        pnl_scale_factor=0.1
-    )
-    
     # Register strategies
     ut_agent = UTSignalAgent()
     trainer.register_strategy("UT_BOT", ut_agent)

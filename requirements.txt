@@ -1,14 +1,49 @@
 pandas>=1.3.0
 numpy>=1.21.0
 ccxt>=4.0.0
+# Technical Analysis
 ta>=0.10.0
+# Progress bar
 tqdm>=4.62.0
+# Plotting
 plotly>=5.3.0
+matplotlib>=3.4.0
+# Data validation
 pydantic>=1.8.2
+# Bayesian optimization
 bayesian-optimization>=1.4.0
+# Async HTTP
 aiohttp>=3.7.4
+async-timeout>=4.0.0
+# Flask web server
 flask>=2.0.0
 flask-socketio>=5.0.0
 eventlet>=0.31.0
-matplotlib>=3.4.0
+# Machine learning
+scikit-learn>=0.24.0
+imbalanced-learn>=0.8.0
+xgboost>=1.4.0
+# RL and Gym
+stable-baselines3>=2.0.0
+gymnasium>=0.29.0
+gym>=0.26.0
+# Date/time
+pytz>=2021.1
+# Requests
+requests>=2.26.0
+# Text analysis
+textblob>=0.17.1
+vaderSentiment>=3.3.2
+# Type hints
+# (dataclasses is stdlib for 3.7+)
 dataclasses; python_version<'3.7'
+# Misc
+multiprocess>=0.70.12.2
+# For tqdm, plotly, etc.
+# For Flask, SocketIO, Eventlet
+# For matplotlib, gridspec
+# For RL: torch
+# (torch is not pinned here, user should install appropriate version for their system)
+# For pandas, numpy, etc.
+# For abc, typing, collections, etc. (stdlib)
+# For arch_ctrl, strategy_adapters, etc. (local modules)

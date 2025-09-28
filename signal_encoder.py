@@ -48,10 +48,8 @@ def build_feature_df(price_df, fear_df, dominance_df, altcoin_df, psych_df):
     df["volatility"] = df["price"].rolling(window=5).std().fillna(0)
     return df.dropna()
 
-df = build_feature_df(price_df, fear_df, dominance_df, altcoin_df, psych_df)
-encoder = SignalEncoder()
-market_data = encoder.encode(df)
 
-# Save for reuse
-np.save("market_data.npy", market_data)
+
+# This module provides SignalEncoder and build_feature_df for use by other scripts.
+# Import and call build_feature_df and SignalEncoder from your scanner or main pipeline, passing real DataFrames.
 

@@ -1,3 +1,199 @@
+import json
+
+import asyncio
+import ccxt.pro as ccxt_async  # Use ccxt.pro for async support; install with 'pip install ccxtpro'
+from services.yfinance_adapter import YFinanceForexAdapter
+import pandas as pd
+import numpy as np
+import time
+import aiohttp
+from datetime import datetime, timezone
+import json
+import os
+import multiprocessing
+import logging
+from tqdm import tqdm
+import async_timeout
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Union
+import warnings
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from collections import Counter
+from pathlib import Path
+
+# Suppress pandas future warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# Technical indicators with better error handling
+BollingerBands = None
+average_true_range = None
+StochasticOscillator = None
+rsi = None
+ema_indicator = None
+sma_indicator = None
+adx = None
+on_balance_volume = None
+
+try:
+    from ta.volatility import BollingerBands, average_true_range
+    from ta.momentum import StochasticOscillator, rsi
+    from ta.trend import ema_indicator, sma_indicator, adx
+    from ta.volume import on_balance_volume
+    TA_AVAILABLE = True
+except ImportError:
+    TA_AVAILABLE = False
+    logging.warning("'ta' library not found. Install with 'pip install ta' for full indicator support.")
+
+# Set up enhanced logging
+def setup_logging():
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    file_handler = logging.FileHandler('momentum_scanner.log')
+    file_handler.setLevel(logging.DEBUG)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    return logger
+
+logger = setup_logging()
+
+@dataclass
+class TradingConfig:
+    """Configuration class for trading parameters"""
+    timeframes: Dict[str, str]
+    backtest_periods: Dict[str, int]
+    momentum_periods: Dict[str, Dict[str, Dict[str, int]]]
+    signal_thresholds: Dict[str, Dict[str, Dict[str, float]]]
+    trade_durations: Dict[str, int]
+    lookback_window: int = 68
+    rsi_threshold: float = 33.0
+    volume_multiplier: float = 3.2
+    rsi_period: int = 14
+    macd_params: Optional[Dict[str, int]] = None
+    volume_trend_thresholds: Optional[Dict[str, float]] = None
+    retry_attempts: int = 3
+    retry_delay: int = 2
+    rate_limit_delay: float = 0.01
+    max_concurrent_requests: int = 50
+    circuit_breaker_threshold: int = 10
+    circuit_breaker_pause: int = 60
+    websocket_update_interval: int = 1
+    volume_profile_bins: int = 50
+    fixed_range_bars: int = 20
+
+    def __post_init__(self):
+        if self.macd_params is None:
+            self.macd_params = {"fast": 12, "slow": 26, "signal": 9}
+        if self.volume_trend_thresholds is None:
+            self.volume_trend_thresholds = {"up": 0.05, "down": -0.05}
+
+def get_dynamic_config(market_type='crypto') -> TradingConfig:
+    """Generate dynamic configuration based on system resources and market type"""
+    cpu_count = multiprocessing.cpu_count()
+    max_concurrent = min(max(20, cpu_count * 5), 100)
+
+
+
+    if market_type == 'forex':
+        return TradingConfig(
+            timeframes={
+                "scalping": "1m",
+                "short": "5m",
+                "medium": "1h",
+                "daily": "1d",
+                "weekly": "1w"
+            },
+            backtest_periods={
+                "scalping": 100,
+                "short": 50,
+                "medium": 24,
+                "daily": 7,
+                "weekly": 4
+            },
+            momentum_periods={
+                "forex": {
+                    "scalping": {"short": 20, "long": 120},
+                    "short": {"short": 10, "long": 50},
+                    "medium": {"short": 6, "long": 24},
+                    "daily": {"short": 5, "long": 20},
+                    "weekly": {"short": 3, "long": 10}
+                }
+            },
+            signal_thresholds={
+                "forex": {
+                    "scalping": {"momentum_short": 0.002, "rsi_min": 33, "rsi_max": 70, "macd_min": 0},
+                    "short": {"momentum_short": 0.005, "rsi_min": 33, "rsi_max": 68, "macd_min": 0},
+                    "medium": {"momentum_short": 0.008, "rsi_min": 33, "rsi_max": 67, "macd_min": 0},
+                    "daily": {"momentum_short": 0.01, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                    "weekly": {"momentum_short": 0.03, "rsi_min": 33, "rsi_max": 70, "macd_min": 0}
+                }
+            },
+            trade_durations={
+                "scalping": 1800,
+                "short": 14400,
+                "medium": 86400,
+                "daily": 604800,
+                "weekly": 2592000
+            },
+            max_concurrent_requests=max_concurrent,
+            lookback_window=68,
+            rsi_threshold=33.0,
+            volume_multiplier=3.2
+        )
+    # Default to crypto config
+    return TradingConfig(
+        timeframes={
+            "scalping": "1m",
+            "short": "5m",
+            "medium": "1h",
+            "daily": "1d",
+            "weekly": "1w"
+        },
+        backtest_periods={
+            "scalping": 100,
+            "short": 50,
+            "medium": 24,
+            "daily": 7,
+            "weekly": 4
+        },
+        momentum_periods={
+            "crypto": {
+                "scalping": {"short": 10, "long": 60},
+                "short": {"short": 5, "long": 20},
+                "medium": {"short": 4, "long": 12},
+                "daily": {"short": 7, "long": 30},
+                "weekly": {"short": 4, "long": 12}
+            }
+        },
+        signal_thresholds={
+            "crypto": {
+                "scalping": {"momentum_short": 0.01, "rsi_min": 33, "rsi_max": 70, "macd_min": 0},
+                "short": {"momentum_short": 0.03, "rsi_min": 33, "rsi_max": 68, "macd_min": 0},
+                "medium": {"momentum_short": 0.05, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                "daily": {"momentum_short": 0.06, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                "weekly": {"momentum_short": 0.15, "rsi_min": 33, "rsi_max": 70, "macd_min": 0}
+            }
+        },
+        trade_durations={
+            "scalping": 1800,
+            "short": 14400,
+            "medium": 86400,
+            "daily": 604800,
+            "weekly": 2592000
+        },
+        max_concurrent_requests=max_concurrent,
+    lookback_window=68,
+    rsi_threshold=33.0,
+    volume_multiplier=3.2
+    )
+    
+    
 class PortfolioSimulator:
     """
     Simulates live portfolio equity curve, position breakdown, daily balance, CSV export, and plotting.
@@ -112,174 +308,124 @@ class OptimizableAgent(ABC):
     def evaluate(self) -> float:
         pass
 
-import asyncio
-import ccxt.async_support as ccxt_async
-import pandas as pd
-import numpy as np
-import time
-import aiohttp
-from datetime import datetime, timezone
-import json
-import os
-import multiprocessing
-import logging
-from tqdm import tqdm
-import async_timeout
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
-import warnings
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from collections import Counter
-from pathlib import Path
-
-# Suppress pandas future warnings
-warnings.filterwarnings('ignore', category=FutureWarning)
-
-# Technical indicators with better error handling
-BollingerBands = None
-average_true_range = None
-StochasticOscillator = None
-rsi = None
-ema_indicator = None
-sma_indicator = None
-adx = None
-on_balance_volume = None
-
-try:
-    from ta.volatility import BollingerBands, average_true_range
-    from ta.momentum import StochasticOscillator, rsi
-    from ta.trend import ema_indicator, sma_indicator, adx
-    from ta.volume import on_balance_volume
-    TA_AVAILABLE = True
-except ImportError:
-    TA_AVAILABLE = False
-    logging.warning("'ta' library not found. Install with 'pip install ta' for full indicator support.")
-
-# Set up enhanced logging
-def setup_logging():
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    file_handler = logging.FileHandler('momentum_scanner.log')
-    file_handler.setLevel(logging.DEBUG)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
-
-logger = setup_logging()
-
-@dataclass
-class TradingConfig:
-    """Configuration class for trading parameters"""
-    timeframes: Dict[str, str]
-    backtest_periods: Dict[str, int]
-    momentum_periods: Dict[str, Dict[str, Dict[str, int]]]
-    signal_thresholds: Dict[str, Dict[str, Dict[str, float]]]
-    trade_durations: Dict[str, int]
-    rsi_period: int = 14
-    macd_params: Optional[Dict[str, int]] = None
-    volume_trend_thresholds: Optional[Dict[str, float]] = None
-    retry_attempts: int = 3
-    retry_delay: int = 2
-    rate_limit_delay: float = 0.01
-    max_concurrent_requests: int = 50
-    circuit_breaker_threshold: int = 10
-    circuit_breaker_pause: int = 60
-    websocket_update_interval: int = 1
-    volume_profile_bins: int = 50
-    fixed_range_bars: int = 20
-
-    def __post_init__(self):
-        if self.macd_params is None:
-            self.macd_params = {"fast": 12, "slow": 26, "signal": 9}
-        if self.volume_trend_thresholds is None:
-            self.volume_trend_thresholds = {"up": 0.05, "down": -0.05}
-
-def get_dynamic_config() -> TradingConfig:
-    """Generate dynamic configuration based on system resources"""
-    cpu_count = multiprocessing.cpu_count()
-    max_concurrent = min(max(20, cpu_count * 5), 100)
-    return TradingConfig(
-        timeframes={
-            "scalping": "1m",
-            "short": "5m",
-            "medium": "1h",
-            "daily": "1d",
-            "weekly": "1w"
-        },
-        backtest_periods={
-            "scalping": 100,
-            "short": 50,
-            "medium": 24,
-            "daily": 7,
-            "weekly": 4
-        },
-        momentum_periods={
-            "crypto": {
-                "scalping": {"short": 10, "long": 60},
-                "short": {"short": 5, "long": 20},
-                "medium": {"short": 4, "long": 12},
-                "daily": {"short": 7, "long": 30},
-                "weekly": {"short": 4, "long": 12}
-            },
-            "forex": {
-                "scalping": {"short": 20, "long": 120},
-                "short": {"short": 10, "long": 50},
-                "medium": {"short": 6, "long": 24},
-                "daily": {"short": 5, "long": 20},
-                "weekly": {"short": 3, "long": 10}
-            }
-        },
-        signal_thresholds={
-            "crypto": {
-                "scalping": {"momentum_short": 0.01, "rsi_min": 55, "rsi_max": 70, "macd_min": 0},
-                "short": {"momentum_short": 0.03, "rsi_min": 52, "rsi_max": 68, "macd_min": 0},
-                "medium": {"momentum_short": 0.05, "rsi_min": 50, "rsi_max": 65, "macd_min": 0},
-                "daily": {"momentum_short": 0.06, "rsi_min": 50, "rsi_max": 65, "macd_min": 0},
-                "weekly": {"momentum_short": 0.15, "rsi_min": 45, "rsi_max": 70, "macd_min": 0}
-            },
-            "forex": {
-                "scalping": {"momentum_short": 0.002, "rsi_min": 50, "rsi_max": 70, "macd_min": 0},
-                "short": {"momentum_short": 0.005, "rsi_min": 48, "rsi_max": 68, "macd_min": 0},
-                "medium": {"momentum_short": 0.008, "rsi_min": 47, "rsi_max": 67, "macd_min": 0},
-                "daily": {"momentum_short": 0.01, "rsi_min": 45, "rsi_max": 65, "macd_min": 0},
-                "weekly": {"momentum_short": 0.03, "rsi_min": 40, "rsi_max": 70, "macd_min": 0}
-            }
-        },
-        trade_durations={
-            "scalping": 1800,
-            "short": 14400,
-            "medium": 86400,
-            "daily": 604800,
-            "weekly": 2592000
-        },
-        max_concurrent_requests=max_concurrent
-    )
-
 class TechnicalIndicators:
-    """Class to handle all technical indicator calculations"""
-    
     @staticmethod
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
-        if TA_AVAILABLE and callable(rsi):
-            try:
-                return rsi(prices, window=period).iloc[-1]
-            except Exception as e:
-                logger.warning(f"Error using ta.momentum.rsi: {e}")
+        if len(prices) < period + 1:
+            return np.nan
         delta = prices.diff().astype(float)
-        gain = np.where(delta > 0, delta, 0)
-        loss = np.where(delta < 0, -delta, 0)
-        avg_gain = pd.Series(gain).rolling(window=period).mean().iloc[-1]
-        avg_loss = pd.Series(loss).rolling(window=period).mean().iloc[-1]
-        if avg_loss == 0:
-            return 100
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        avg_gain = gain.rolling(window=period, min_periods=period).mean()
+        avg_loss = loss.rolling(window=period, min_periods=period).mean()
         rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.iloc[-1]
+
+    @staticmethod
+    def fib_confluence_score(fib_dict: dict, poc: float, vwap: float, tolerance: float = 0.005) -> float:
+        """
+        0–100 score: 100 = price sits on fib + poc + vwap within tolerance
+        """
+        if not fib_dict:
+            return 0.0
+        current = fib_dict.get("nearest_retracement", None)
+        if current is None:
+            return 0.0
+        confluence = 0
+        levels = list(fib_dict.get("retracements", {}).values()) + list(fib_dict.get("extensions", {}).values())
+        for level in levels:
+            if abs(current - level) / current < tolerance:
+                confluence += 20
+        if abs(current - poc)  / current < tolerance:
+            confluence += 20
+        if abs(current - vwap) / current < tolerance:
+            confluence += 20
+        return min(confluence, 100)
+    @staticmethod
+    def fib_levels(df: pd.DataFrame,
+                   lookback: int = 55,
+                   mode: str = "swing") -> dict:
+        """
+        Returns dict with:
+            retracements: 0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0
+            extensions:   1.272, 1.618, 2.0
+            direction:    'bull' | 'bear'
+            swing_high, swing_low
+        """
+        if len(df) < lookback:
+            return {}
+
+        highs = df['high'].iloc[-lookback:]
+        lows  = df['low'].iloc[-lookback:]
+
+        # Swing detection
+        swing_high_idx = highs.idxmax()
+        swing_low_idx  = lows.idxmin()
+
+        swing_high = highs.loc[swing_high_idx]
+        swing_low  = lows.loc[swing_low_idx]
+
+        # Always get integer position for comparison
+        def _first_int_loc(idx, val):
+            loc = idx.get_loc(val)
+            if isinstance(loc, int):
+                return loc
+            elif isinstance(loc, slice):
+                # Use the start of the slice
+                return loc.start
+            elif isinstance(loc, (np.ndarray, list)):
+                # Use the first True index
+                arr = np.asarray(loc)
+                if arr.dtype == bool:
+                    return np.flatnonzero(arr)[0]
+                return arr[0]
+            else:
+                raise TypeError(f"Unexpected index location type: {type(loc)}")
+
+        high_pos = _first_int_loc(highs.index, swing_high_idx)
+        low_pos = _first_int_loc(lows.index, swing_low_idx)
+
+        # Determine if last swing is up or down
+        if high_pos > low_pos:
+            direction = "bull"  # retracement from high
+            base, top = swing_low, swing_high
+        else:
+            direction = "bear"  # retracement from low
+            base, top = swing_high, swing_low
+
+        diff = abs(top - base)
+        retracements = {
+            0.0:   top,
+            0.236: top - 0.236 * diff,
+            0.382: top - 0.382 * diff,
+            0.5:   top - 0.5  * diff,
+            0.618: top - 0.618 * diff,
+            0.786: top - 0.786 * diff,
+            1.0:   base,
+        }
+        extensions = {
+            1.272: top + 0.272 * diff if direction == "bull" else base - 0.272 * diff,
+            1.618: top + 0.618 * diff if direction == "bull" else base - 0.618 * diff,
+            2.0:   top + 1.0   * diff if direction == "bull" else base - 1.0   * diff,
+        }
+
+        # current price vs nearest fib
+        current = df['close'].iloc[-1]
+        nearest_r = min(retracements.values(), key=lambda x: abs(x - current))
+        nearest_e = min(extensions.values(),   key=lambda x: abs(x - current))
+
+        return {
+            "direction": direction,
+            "swing_high": swing_high,
+            "swing_low": swing_low,
+            "retracements": retracements,
+            "extensions": extensions,
+            "nearest_retracement": nearest_r,
+            "nearest_extension": nearest_e,
+            "distance_to_nearest_r": (current - nearest_r) / current,
+            "distance_to_nearest_e": (current - nearest_e) / current,
+        }
         return 100 - (100 / (1 + rs))
     
     @staticmethod
@@ -350,6 +496,9 @@ class TechnicalIndicators:
         if len(df) < anchor_index + 2 or 'volume' not in df or 'close' not in df:
             return None, None
         df_anchored = df.iloc[anchor_index:]
+        # Ensure df_anchored is a DataFrame, not a Series
+        if isinstance(df_anchored, pd.Series):
+            df_anchored = df_anchored.to_frame().T
         return TechnicalIndicators.calculate_volume_profile(df_anchored, bins)
 
     @staticmethod
@@ -372,9 +521,10 @@ class TechnicalIndicators:
         trend_score: float,
         volume_ratio: float,
         ichimoku_bullish: bool,
+        fib_confluence: float = 0.0,
         weights: Optional[Dict[str, float]] = None
     ) -> float:
-        """Calculate a composite score combining multiple indicators"""
+        """Calculate a composite score combining multiple indicators, including optional fib_confluence."""
         weights = weights or {
             'momentum_short': 0.2,
             'momentum_long': 0.15,
@@ -382,7 +532,8 @@ class TechnicalIndicators:
             'macd': 0.15,
             'trend_score': 0.2,
             'volume_ratio': 0.1,
-            'ichimoku': 0.1
+            'ichimoku': 0.1,
+            'fib_confluence': 0.15
         }
         mom_short_score = min(max(abs(momentum_short) * 1000, 0), 1)
         mom_long_score = min(max(abs(momentum_long) * 500, 0), 1)
@@ -391,6 +542,7 @@ class TechnicalIndicators:
         trend_score_norm = min(max(trend_score / 10, 0), 1)
         vol_score = min(max((volume_ratio - 1) / 1.5, 0), 1)
         ichimoku_score = 1.0 if ichimoku_bullish else 0.0
+        fib_score = min(max(fib_confluence / 100, 0), 1)
         score = (
             mom_short_score * weights['momentum_short'] +
             mom_long_score * weights['momentum_long'] +
@@ -398,7 +550,8 @@ class TechnicalIndicators:
             macd_score * weights['macd'] +
             trend_score_norm * weights['trend_score'] +
             vol_score * weights['volume_ratio'] +
-            ichimoku_score * weights['ichimoku']
+            ichimoku_score * weights['ichimoku'] +
+            fib_score * weights.get('fib_confluence', 0.15)
         )
         return round(score * 100, 2)
 
@@ -657,8 +810,14 @@ class MarketDataFetcher:
                         return None
 
 class SignalClassifier:
-    """Handles signal classification and scoring"""
-    
+
+    """
+    Dual-purpose classifier:
+      1. classify_state(...)   -> new granular regime states
+      2. classify_legacy(...)  -> legacy labels with exact rules
+      3. classify_momentum_signal(...) -> main buy/sell/neutral signal
+    """
+
     @staticmethod
     def classify_momentum_signal(
         momentum_short: float,
@@ -668,59 +827,187 @@ class SignalClassifier:
         thresholds: dict,
         additional_indicators: Optional[dict] = None
     ) -> str:
+        """
+        Classifies the main trading signal as 'Strong Buy', 'Buy', 'Weak Buy', 'Neutral', 'Weak Sell', 'Sell', or 'Strong Sell'
+        based on indicator values and thresholds.
+        """
         additional_indicators = additional_indicators or {}
-        ichimoku_bullish = additional_indicators.get('ichimoku_bullish', False)
-        vwap_bullish = additional_indicators.get('vwap_bullish', False)
-        rsi_bearish_div = additional_indicators.get('rsi_bearish_div', False)
-        ema_5_13_bullish = additional_indicators.get('ema_5_13_bullish', False)
-        ema_9_21_bullish = additional_indicators.get('ema_9_21_bullish', False)
-        ema_50_200_bullish = additional_indicators.get('ema_50_200_bullish', False)
-        high_momentum = thresholds['momentum_short'] * 1.5
-        med_momentum = thresholds['momentum_short']
-        low_momentum = thresholds['momentum_short'] * 0.5
-        rsi_overbought = 75
-        rsi_oversold = 25
-        rsi_neutral_high = 60
-        rsi_neutral_low = 40
-        ema_count = sum([ema_5_13_bullish, ema_9_21_bullish, ema_50_200_bullish])
-        if (momentum_short > high_momentum and
-            momentum_long > med_momentum and
-            rsi_neutral_low < rsi < rsi_overbought and
-            macd > 0 and
-            ichimoku_bullish and
-            vwap_bullish and
-            ema_count >= 2):
+        # Unpack thresholds
+        mom_th = thresholds.get('momentum_short', 0.01)
+        rsi_min = thresholds.get('rsi_min', 50)
+        rsi_max = thresholds.get('rsi_max', 70)
+        macd_min = thresholds.get('macd_min', 0)
+
+        # Strong Buy
+        if (
+            momentum_short > mom_th * 2 and
+            momentum_long > mom_th and
+            rsi > rsi_min and rsi < rsi_max and
+            macd > macd_min and
+            additional_indicators.get('ichimoku_bullish', False)
+        ):
             return "Strong Buy"
-        elif (momentum_short > med_momentum and
-              momentum_long > low_momentum and
-              rsi > rsi_neutral_low and
-              macd > 0 and
-              (ichimoku_bullish or vwap_bullish or ema_count >= 1)):
+        # Buy
+        if (
+            momentum_short > mom_th and
+            rsi > rsi_min and
+            macd > 0
+        ):
             return "Buy"
-        elif (momentum_short > low_momentum and
-              rsi > rsi_neutral_low and
-              (ichimoku_bullish or vwap_bullish or ema_5_13_bullish)):
+        # Weak Buy
+        if (
+            momentum_short > 0 and
+            rsi > 45 and
+            macd > 0
+        ):
             return "Weak Buy"
-        elif (momentum_short < -high_momentum and
-              momentum_long < -med_momentum and
-              rsi < rsi_neutral_high and
-              macd < 0 and
-              not ichimoku_bullish and
-              rsi_bearish_div and
-              not any([ema_5_13_bullish, ema_9_21_bullish, ema_50_200_bullish])):
+        # Strong Sell
+        if (
+            momentum_short < -mom_th * 2 and
+            momentum_long < -mom_th and
+            rsi < 100 - rsi_min and rsi > 20 and
+            macd < -macd_min and
+            not additional_indicators.get('ichimoku_bullish', True)
+        ):
             return "Strong Sell"
-        elif (momentum_short < -med_momentum and
-              momentum_long < -low_momentum and
-              rsi < rsi_neutral_high and
-              macd < 0):
+        # Sell
+        if (
+            momentum_short < -mom_th and
+            rsi < 100 - rsi_min and
+            macd < 0
+        ):
             return "Sell"
-        elif (momentum_short < -low_momentum and
-              rsi < rsi_neutral_high):
+        # Weak Sell
+        if (
+            momentum_short < 0 and
+            rsi < 55 and
+            macd < 0
+        ):
             return "Weak Sell"
-        elif rsi > rsi_overbought or rsi_bearish_div:
+        # Neutral
+        return "Neutral"
+
+    # ------------------------------------------------------------------
+    # 1. NEW STATE MACHINE  (granular regime states)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def classify_state(mom1d: float,
+                       mom7d: float,
+                       mom30d: float,
+                       rsi: float,
+                       macd: float,
+                       bb_pos: float,
+                       vol_ratio: float) -> str:
+        """
+        Returns one of:
+          BULL_EARLY, BULL_STRONG, BULL_PARABOLIC,
+          BEAR_EARLY, BEAR_STRONG, BEAR_CAPITULATION,
+          NEUTRAL_ACCUM, NEUTRAL_DIST, NEUTRAL
+        """
+        vol_mult = max(0.5, min(2.0, vol_ratio))
+        th_weak, th_med, th_strong = (
+            0.015 * vol_mult,
+            0.035 * vol_mult,
+            0.075 * vol_mult,
+        )
+
+        breakout_up = bb_pos > 0.85 and mom1d > th_weak
+        breakout_dn = bb_pos < 0.15 and mom1d < -th_weak
+        thrust_up   = mom1d > th_med and mom7d > th_med
+        thrust_dn   = mom1d < -th_med and mom7d < -th_med
+        parabolic   = abs(mom1d) > th_strong and abs(mom7d) > th_strong
+
+        if parabolic and mom1d > 0:
+            return "BULL_PARABOLIC"
+        if parabolic and mom1d < 0:
+            return "BEAR_CAPITULATION"
+        if thrust_up:
+            return "BULL_STRONG"
+        if thrust_dn:
+            return "BEAR_STRONG"
+        if breakout_up:
+            return "BULL_EARLY"
+        if breakout_dn:
+            return "BEAR_EARLY"
+        if -th_weak < mom7d < th_weak:
+            if rsi < 35 and mom1d > 0:
+                return "NEUTRAL_ACCUM"
+            if rsi > 65 and mom1d < 0:
+                return "NEUTRAL_DIST"
+        return "NEUTRAL"
+
+    # ------------------------------------------------------------------
+    # 2. LEGACY LABELS  (backward-compatible but volatility-scaled)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def classify_legacy(mom7d: float,
+                        mom30d: float,
+                        rsi: float,
+                        macd: float,
+                        bb_position: float,
+                        volume_ratio: float) -> str:
+        """
+        Returns the legacy labels:
+          Consistent Uptrend, New Spike, Topping Out, Lagging,
+          Moderate Uptrend, Potential Reversal, Consolidation,
+          Weak Uptrend, Overbought, Oversold, MACD Bullish,
+          MACD Bearish, Neutral
+        Each label now has exact, volatility-adjusted rules.
+        """
+        vol_mult  = max(0.5, min(2.0, volume_ratio))
+        th_high   = 0.07  * vol_mult
+        th_med    = 0.035 * vol_mult
+        th_low    = 0.015 * vol_mult
+
+        # 1. Consistent Uptrend
+        if mom7d > th_med and mom30d > th_high and mom7d < 0.5 * mom30d:
+            return "Consistent Uptrend"
+
+        # 2. New Spike
+        if mom7d > th_high and abs(mom30d) < th_med:
+            return "New Spike"
+
+        # 3. Topping Out
+        if (mom7d < -th_med and
+            mom30d > th_high and
+            bb_position > 0.80 and
+            rsi > 65):
+            return "Topping Out"
+
+        # 4. Lagging
+        if abs(mom7d) < th_low and abs(mom30d) < th_med:
+            return "Lagging"
+
+        # 5. Moderate Uptrend
+        if th_low < mom7d < th_high and th_med < mom30d < th_high:
+            return "Moderate Uptrend"
+
+        # 6. Potential Reversal
+        if mom7d > th_med and mom30d < -th_med and rsi < 45:
+            return "Potential Reversal"
+
+        # 7. Consolidation
+        if (abs(mom7d) < th_low and
+            abs(mom30d) < th_low and
+            40 <= rsi <= 60):
+            return "Consolidation"
+
+        # 8. Weak Uptrend
+        if mom7d > th_low and abs(mom30d) < th_low:
+            return "Weak Uptrend"
+
+        # 9. Overbought / Oversold
+        if rsi > 75 and mom7d > th_med:
             return "Overbought"
-        elif rsi < rsi_oversold:
+        if rsi < 25 and mom7d < -th_med:
             return "Oversold"
+
+        # 10. MACD-driven
+        if macd > 0 and mom7d > th_med:
+            return "MACD Bullish"
+        if macd < 0 and mom7d < -th_med:
+            return "MACD Bearish"
+
         return "Neutral"
     
     @staticmethod
@@ -749,6 +1036,15 @@ class SignalClassifier:
         return max(0, min(100, score))
 
 class MomentumScanner(OptimizableAgent):
+    def _detect_mean_reversion(self, row) -> bool:
+        """
+        Returns True if RSI > 70 and short-term momentum is declining (negative or less than long-term momentum).
+        """
+        rsi = row.get('rsi', 0)
+        momentum_short = row.get('momentum_short', 0)
+        momentum_long = row.get('momentum_long', 0)
+        # Mean reversion if overbought and momentum is declining
+        return rsi > 70 and (momentum_short < 0 or momentum_short < momentum_long)
     # OptimizableAgent interface implementation
     def get_hyperparameters(self) -> dict:
         return {
@@ -846,11 +1142,11 @@ class MomentumScanner(OptimizableAgent):
     
     def __init__(
         self,
-        exchange: ccxt_async.Exchange,
+        exchange,
         config: Optional[TradingConfig] = None,
         market_type: str = 'crypto',
         quote_currency: str = 'USDT',
-        min_volume_usd: float = 250_000,
+        min_volume_usd: float = 500_000,
         top_n: int = 50
     ):
         """
@@ -864,35 +1160,44 @@ class MomentumScanner(OptimizableAgent):
             min_volume_usd: Minimum average volume in USD for filtering
             top_n: Number of top signals to keep
         """
-        if not isinstance(exchange, ccxt_async.Exchange):
-            raise ValueError("Exchange must be a valid CCXT async exchange instance")
-        if market_type not in ['crypto', 'forex']:
-            raise ValueError("Market type must be 'crypto' or 'forex'")
-        
+        # Allow yfinance adapter or ccxt for forex, ccxt for crypto
+        if market_type == 'crypto' and not isinstance(exchange, ccxt_async.Exchange):
+            raise ValueError("Crypto market requires a valid CCXT async exchange instance")
+        if market_type == 'forex' and not (isinstance(exchange, ccxt_async.Exchange) or hasattr(exchange, 'fetch_ohlcv')):
+            raise ValueError("Forex market requires a CCXT exchange or a compatible adapter (e.g., yfinance)")
+
         self.exchange = exchange
-        self.config = config or get_dynamic_config()
         self.market_type = market_type
         self.quote_currency = quote_currency.upper()
         self.min_volume_usd = max(min_volume_usd, 0)
         self.top_n = max(top_n, 1)
-        
+
+        # Separate config for each market type
+        if config is not None:
+            self.config = config
+        else:
+            if market_type == 'crypto':
+                self.config = get_dynamic_config(market_type='crypto')
+            else:
+                self.config = get_dynamic_config(market_type='forex')
+
         self.scan_results = pd.DataFrame()
         self.market_data = {}
         self.live_prices = {}
         self.fear_greed_history = []
         self.btc_dominance_history = []
         self.timestamp_history = []
-        
+
         self.data_fetcher = MarketDataFetcher(exchange, self.config)
         self.data_fetcher.cache_expiry = 300  # Enable caching for 5 minutes
         self.indicators = TechnicalIndicators()
         self.classifier = SignalClassifier()
-        
+
         logger.info(
             f"Initialized MomentumScanner for {market_type} market with "
             f"quote_currency={quote_currency}, min_volume_usd={min_volume_usd}, top_n={top_n}"
         )
-        
+
         try:
             asyncio.create_task(self._initialize_exchange())
         except Exception as e:
@@ -906,98 +1211,104 @@ class MomentumScanner(OptimizableAgent):
             logger.info("Exchange markets loaded successfully")
         except Exception as e:
             logger.error(f"Error initializing exchange: {e}")
-            raise
-    
-    @staticmethod
-    def classify_signal(mom7d, mom30d, rsi, macd):
-        high_mom7d = 0.07
-        high_mom30d = 0.28
-        med_mom7d = 0.05
-        med_mom30d = 0.20
-        rsi_overbought = 80
-        rsi_oversold = 20
-        if mom7d > high_mom7d and mom30d > high_mom30d:
-            return "Consistent Uptrend"
-        elif mom7d > high_mom7d and mom30d < med_mom30d:
-            return "New Spike"
-        elif mom7d < med_mom7d and mom30d > high_mom30d:
-            return "Topping Out"
-        elif mom7d < med_mom7d and mom30d < med_mom30d:
-            return "Lagging"
-        elif mom7d > med_mom7d and mom30d > high_mom30d:
-            return "Moderate Uptrend"
-        elif mom7d < med_mom7d and mom30d > med_mom30d:
-            return "Potential Reversal"
-        elif mom7d > med_mom7d and mom30d > med_mom30d:
-            return "Consolidation"
-        elif mom7d > med_mom7d and mom30d < med_mom30d:
-            return "Weak Uptrend"
-        elif rsi > rsi_overbought and mom7d > high_mom7d:
-            return "Overbought"
-        elif rsi < rsi_oversold and mom7d < med_mom7d:
-            return "Oversold"
-        elif macd > 0 and mom7d > high_mom7d:
-            return "MACD Bullish"
-        elif macd < 0 and mom7d < med_mom7d:
-            return "MACD Bearish"
-        else:
-            return "Neutral"
-    
-    async def overlay_4h_trend(self):
-        if self.scan_results.empty:
-            logger.warning("No daily scan results to overlay 4H trend")
-            return
-        tf = self.config.timeframes.get('medium', '4h')
-        overlay = {}
-        for symbol in self.scan_results['symbol']:
-            df_4h = await self.data_fetcher.fetch_ohlcv(symbol, tf, limit=100)
-            if df_4h is not None and len(df_4h) > 21:
-                ema_21 = df_4h['close'].ewm(span=21, adjust=False).mean()
-                overlay[symbol] = df_4h['close'].iloc[-1] > ema_21.iloc[-1]
-            else:
-                overlay[symbol] = False
-        self.scan_results['trend_4h_bull'] = self.scan_results['symbol'].map(overlay)
+            def _crypto():
+                return TradingConfig(
+                    timeframes={
+                        "scalping": "1m",
+                        "short": "5m",
+                        "medium": "1h",
+                        "daily": "1d",
+                        "weekly": "1w"
+                    },
+                    backtest_periods={
+                        "scalping": 100,
+                        "short": 50,
+                        "medium": 24,
+                        "daily": 7,
+                        "weekly": 4
+                    },
+                    momentum_periods={
+                        "crypto": {
+                            "scalping": {"short": 10, "long": 60},
+                            "short": {"short": 5, "long": 20},
+                            "medium": {"short": 4, "long": 12},
+                            "daily": {"short": 7, "long": 30},
+                            "weekly": {"short": 4, "long": 12}
+                        }
+                    },
+                    signal_thresholds={
+                        "crypto": {
+                            "scalping": {"momentum_short": 0.01, "rsi_min": 33, "rsi_max": 70, "macd_min": 0},
+                            "short": {"momentum_short": 0.03, "rsi_min": 33, "rsi_max": 68, "macd_min": 0},
+                            "medium": {"momentum_short": 0.05, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                            "daily": {"momentum_short": 0.06, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                            "weekly": {"momentum_short": 0.15, "rsi_min": 33, "rsi_max": 70, "macd_min": 0}
+                        }
+                    },
+                    trade_durations={
+                        "scalping": 1800,
+                        "short": 14400,
+                        "medium": 86400,
+                        "daily": 604800,
+                        "weekly": 2592000
+                    }
+                )
+            def _forex():
+                return TradingConfig(
+                    timeframes={
+                        "scalping": "1m",
+                        "short": "5m",
+                        "medium": "1h",
+                        "daily": "1d",
+                        "weekly": "1w"
+                    },
+                    backtest_periods={
+                        "scalping": 100,
+                        "short": 50,
+                        "medium": 24,
+                        "daily": 7,
+                        "weekly": 4
+                    },
+                    momentum_periods={
+                        "forex": {
+                            "scalping": {"short": 20, "long": 120},
+                            "short": {"short": 10, "long": 50},
+                            "medium": {"short": 6, "long": 24},
+                            "daily": {"short": 5, "long": 20},
+                            "weekly": {"short": 3, "long": 10}
+                        }
+                    },
+                    signal_thresholds={
+                        "forex": {
+                            "scalping": {"momentum_short": 0.002, "rsi_min": 33, "rsi_max": 70, "macd_min": 0},
+                            "short": {"momentum_short": 0.005, "rsi_min": 33, "rsi_max": 68, "macd_min": 0},
+                            "medium": {"momentum_short": 0.008, "rsi_min": 33, "rsi_max": 67, "macd_min": 0},
+                            "daily": {"momentum_short": 0.01, "rsi_min": 33, "rsi_max": 65, "macd_min": 0},
+                            "weekly": {"momentum_short": 0.03, "rsi_min": 33, "rsi_max": 70, "macd_min": 0}
+                        }
+                    },
+                    trade_durations={
+                        "scalping": 1800,
+                        "short": 14400,
+                        "medium": 86400,
+                        "daily": 604800,
+                        "weekly": 2592000
+                    }
+                )
+            import inspect
+            sig = inspect.signature(get_dynamic_config)
+            if 'market_type' in sig.parameters:
+                def _get(market_type='crypto'):
+                    if market_type == 'forex':
+                        return _forex()
+                    return _crypto()
+                return _get
+            # fallback for legacy usage
+            return _crypto()
 
-    @staticmethod
-    def ema_crossover(df: pd.DataFrame, fast: int = 9, slow: int = 21) -> bool:
-        if len(df) < slow + 2:
-            return False
-        ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
-        return (ema_fast.iloc[-2] < ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
+# Add this method to the MomentumScanner class:
 
-    @staticmethod
-    def rsi_divergence(df: pd.DataFrame, lookback: int = 10) -> bool:
-        if len(df) < lookback + 2 or 'rsi' not in df:
-            return False
-        price = df['close']
-        rsi = df['rsi']
-        return (price.iloc[-1] < price.iloc[-lookback]) and (rsi.iloc[-1] > rsi.iloc[-lookback])
-
-    @staticmethod
-    def macd_bullish_cross(df: pd.DataFrame) -> bool:
-        if 'macd' not in df or len(df) < 3:
-            return False
-        macd = df['macd']
-        signal = macd.ewm(span=9, adjust=False).mean()
-        return (macd.iloc[-2] < signal.iloc[-2]) and (macd.iloc[-1] > signal.iloc[-1])
-
-    @staticmethod
-    def volume_acceleration(df: pd.DataFrame, window: int = 10) -> float:
-        if len(df) < window + 2:
-            return 1.0
-        recent = df['volume'].iloc[-window:]
-        prev = df['volume'].iloc[-window*2:-window]
-        if prev.mean() == 0:
-            return 1.0
-        return recent.mean() / prev.mean()
-    
-    async def scan_multi_timeframe(
-        self,
-        timeframes: Optional[list] = None,
-        full_analysis: bool = True,
-        save_results: bool = True
-    ) -> pd.DataFrame:
+    async def scan_multi_timeframe(self, timeframes: Optional[list] = None, full_analysis: bool = True, save_results: bool = True) -> pd.DataFrame:
         if timeframes is None:
             timeframes = ['1h', '4h', '1d']
         logger.info(f"Starting multi-timeframe scan: {timeframes}")
@@ -1026,6 +1337,8 @@ class MomentumScanner(OptimizableAgent):
             base_row['confluence_zone'] = confluence_count
             base_row['confluence_signal'] = most_common_signal
             base_row['strong_confluence'] = confluence_count == len(signals)
+            # Mark mean reversion if RSI > 70 and momentum is declining
+            base_row['mean_reversion_signal'] = self._detect_mean_reversion(base_row)
             multi_tf_df = pd.concat([multi_tf_df, pd.DataFrame([base_row])], ignore_index=True)
         self.scan_results = multi_tf_df
         if save_results:
@@ -1196,8 +1509,15 @@ class MomentumScanner(OptimizableAgent):
                     volume_hist = df_ind['volume_hist'].iloc[-1]
                     poc_price = df_ind['poc_price'].iloc[-1]
                     poc_distance = (df_ind['close'].iloc[-1] - poc_price) / poc_price if poc_price else 0
+                    # --- Add Fibonacci fields early so we can use fib_confluence in composite_score ---
+                    fib = TechnicalIndicators.fib_levels(df_ind, lookback=55)
+                    fib_confluence = TechnicalIndicators.fib_confluence_score(
+                        fib,
+                        poc=df_ind['poc_price'].iloc[-1] if 'poc_price' in df_ind else 0.0,
+                        vwap=df_ind['vwap'].iloc[-1] if 'vwap' in df_ind else 0.0
+                    )
                     composite_score = self.indicators.calculate_composite_score(
-                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish
+                        momentum_short, momentum_long, rsi, macd, trend_score, volume_ratio, ichimoku_bullish, fib_confluence=fib_confluence
                     )
                     volume_composite_score = self.indicators.calculate_volume_composite_score(
                         volume_ratio, volume_hist, poc_distance
@@ -1218,7 +1538,7 @@ class MomentumScanner(OptimizableAgent):
                     )
                     mom7d = self.indicators.calculate_momentum(df_ind['close'], 7) if len(df_ind) >= 8 else 0
                     mom30d = self.indicators.calculate_momentum(df_ind['close'], 30) if len(df_ind) >= 31 else 0
-                    return {
+                    row = {
                         'symbol': symbol,
                         'price': df_ind['close'].iloc[-1],
                         'momentum_short': momentum_short,
@@ -1229,7 +1549,11 @@ class MomentumScanner(OptimizableAgent):
                         'volume_ratio': volume_ratio,
                         'signal': signal,
                         'signal_strength': signal_strength,
-                        'signal_state': MomentumScanner.classify_signal(mom7d, mom30d, rsi, macd),
+                        'signal_state': SignalClassifier.classify_legacy(
+                            mom7d, mom30d, rsi, macd,
+                            (self._get_bollinger_position(df_ind) if ('bb_upper' in df_ind and self._get_bollinger_position(df_ind) is not None) else 0.5) or 0.5,
+                            volume_ratio
+                        ),
                         'trend_score': trend_score,
                         'confidence_score': confidence_score,
                         'composite_score': composite_score,
@@ -1250,7 +1574,15 @@ class MomentumScanner(OptimizableAgent):
                         'poc_distance': poc_distance,
                         'anchored_poc': df_ind['anchored_poc'].iloc[-1] if 'anchored_poc' in df_ind else None,
                         'fixed_poc': df_ind['fixed_poc'].iloc[-1] if 'fixed_poc' in df_ind else None
-                    }, df_ind
+                    }
+                    # --- Add Fibonacci fields ---
+                    row.update({
+                        "fib_direction":     fib.get("direction"),
+                        "fib_nearest_r":     fib.get("nearest_retracement"),
+                        "fib_nearest_e":     fib.get("nearest_extension"),
+                        "fib_confluence":    fib_confluence,
+                    })
+                    return row, df_ind
                 # Run indicator analysis in thread pool for speed
                 loop = asyncio.get_running_loop()
                 sync_result = await loop.run_in_executor(None, sync_analysis)
@@ -1299,7 +1631,7 @@ class MomentumScanner(OptimizableAgent):
     
     def _calculate_volume_usd(self, df: pd.DataFrame) -> float:
         if self.market_type == 'crypto':
-            return (df['volume'] * df['close']).mean()
+            return float((df['volume'] * df['close']).mean())
         return df['volume'].mean()
     
     def _get_bollinger_position(self, df: pd.DataFrame) -> Optional[float]:
@@ -1373,7 +1705,7 @@ Total Symbols Analyzed: {len(df)}
         for _, row in top_10.iterrows():
             momentum_pct = row['momentum_short'] * 100
             multi_tf_note = ""
-            if 'multi_tf_confirmed' in row and row['multi_tf_confirmed']:
+            if 'multi_tf_confirmed' in row and bool(row['multi_tf_confirmed'].iloc[0] if hasattr(row['multi_tf_confirmed'], 'iloc') else row['multi_tf_confirmed']):
                 multi_tf_note = " [MULTI-TF CONFIRMED]"
             elif 'multi_tf_signals' in row:
                 multi_tf_note = f" [Signals: {row['multi_tf_signals']}]"
@@ -1704,19 +2036,20 @@ Past performance does not guarantee future results.
     
 
     def plot_analysis(self, save_path: Optional[str] = None):
+        import pandas as pd
+        import numpy as np
         if self.scan_results.empty or not self.market_data:
             logger.warning("No data available for plotting")
-            return
+            return None
         df = self.scan_results.sort_values('composite_score', ascending=False)
-        top_symbols = df.head(5)['symbol'].tolist()
-        full_path = None  # Initialize to avoid unbound error
+        top_symbols = df.head(5)['symbol'].tolist() if 'symbol' in df else []
+        full_path = None
         for symbol in top_symbols:
             if symbol not in self.market_data:
                 continue
             data = self.market_data[symbol]
             if data.empty:
                 continue
-            # Create subplot layout: main price chart (rowspan=2, col=1), RSI (row=3, col=1), volume (row=4, col=1), volume profile (row=1, col=2)
             fig = make_subplots(
                 rows=4, cols=2,
                 specs=[
@@ -1734,7 +2067,6 @@ Past performance does not guarantee future results.
                 vertical_spacing=0.05,
                 horizontal_spacing=0.05
             )
-            # Candlestick chart
             fig.add_trace(
                 go.Candlestick(
                     x=data.index,
@@ -1746,7 +2078,6 @@ Past performance does not guarantee future results.
                 ),
                 row=1, col=1
             )
-            # EMA lines
             for ema, color in [
                 ('ema_5', 'purple'),
                 ('ema_13', 'blue'),
@@ -1765,7 +2096,6 @@ Past performance does not guarantee future results.
                         ),
                         row=1, col=1
                     )
-            # VWAP
             if 'vwap' in data and data['vwap'].notna().any():
                 fig.add_trace(
                     go.Scatter(
@@ -1776,164 +2106,174 @@ Past performance does not guarantee future results.
                     ),
                     row=1, col=1
                 )
-            # POC as Fair Value Zone
-            if 'poc_price' in data and pd.notna(data['poc_price'].iloc[-1]):
-                poc_price = data['poc_price'].iloc[-1]
-                fig.add_hrect(
-                    y0=poc_price * 0.995,
-                    y1=poc_price * 1.005,
-                    line_width=0,
-                    fillcolor="green",
-                    opacity=0.2,
-                    annotation_text="POC (Fair Value)",
-                    annotation_position="top left"
-                )
-                fig.add_hline(
-                    y=poc_price,
-                    line_dash="dot",
-                    line_color="green",
-                    line_width=1
-                )
-            # Ichimoku Cloud
-            if all(col in data for col in ['senkou_a', 'senkou_b']):
-                # Plot Senkou Span A and B
-                fig.add_trace(
-                    go.Scatter(
-                        x=data.index,
-                        y=data['senkou_a'],
-                        name='Senkou A',
-                        line=dict(color='green', width=1),
-                        opacity=0.5
-                    ),
-                    row=1, col=1
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=data.index,
-                        y=data['senkou_b'],
-                        name='Senkou B',
-                        line=dict(color='red', width=1),
-                        opacity=0.5,
-                        fill='tonexty',
-                        fillcolor='rgba(255, 0, 0, 0.1)' if data['senkou_b'].iloc[-1] > data['senkou_a'].iloc[-1] else 'rgba(0, 255, 0, 0.1)'
-                    ),
-                    row=1, col=1
-                )
-            # RSI
-            if 'rsi' in data and data['rsi'].notna().any():
-                fig.add_trace(
-                    go.Scatter(
-                        x=data.index,
-                        y=data['rsi'],
-                        name='RSI',
-                        line=dict(color='orange', width=1.5)
-                    ),
-                    row=3, col=1
-                )
-                fig.add_hline(
-                    y=70,
-                    line_dash="dash",
-                    line_color="red",
-                    line_width=1,
-                    annotation_text="Overbought"
-                )
-                fig.add_hline(
-                    y=30,
-                    line_dash="dash",
-                    line_color="green",
-                    line_width=1,
-                    annotation_text="Oversold"
-                )
-            # Volume
-            fig.add_trace(
-                go.Bar(
-                    x=data.index,
-                    y=data['volume'],
-                    name='Volume',
-                    marker_color='blue',
-                    opacity=0.4
-                ),
-                row=4, col=1
-            )
-            # Volume Profile (always in row=1, col=2)
-            if 'volume_hist' in data and data['volume_hist'].iloc[-1] is not None:
-                volume_hist = data['volume_hist'].iloc[-1]
-                price_bins = np.linspace(data['close'].min(), data['close'].max(), self.config.volume_profile_bins + 1)
-                price_centers = (price_bins[:-1] + price_bins[1:]) / 2
-                fig.add_trace(
-                    go.Bar(
-                        y=price_centers,
-                        x=volume_hist,
-                        orientation='h',
-                        name='Volume Profile',
-                        marker_color='purple',
-                        opacity=0.3
-                    ),
-                    row=1, col=2
-                )
-            # Sentiment Overlay (Fear & Greed Index) with timezone alignment
-            if self.fear_greed_history and self.timestamp_history:
-                # Convert data.index to timezone-aware UTC datetimes
-                if not hasattr(data.index, 'tzinfo') or data.index.tzinfo is None:
-                    # If index is pandas DatetimeIndex, localize to UTC
-                    try:
-                        data_index_utc = data.index.tz_localize('UTC')
-                    except Exception:
-                        # If index is not DatetimeIndex, convert manually
-                        data_index_utc = [
-                            dt.replace(tzinfo=timezone.utc) if isinstance(dt, datetime) and dt.tzinfo is None else dt
-                            for dt in data.index
-                        ]
-                        # Use first element for comparison
-                        data_index_utc = pd.to_datetime(data_index_utc)
-                else:
-                    data_index_utc = data.index
-                # Use first timestamp for filtering
-                first_utc = data_index_utc[0]
-                sentiment_times = [t for t in self.timestamp_history if t >= first_utc]
-                sentiment_values = self.fear_greed_history[-len(sentiment_times):]
-                if sentiment_times and len(sentiment_times) == len(sentiment_values):
+                if 'poc_price' in data and pd.notna(data['poc_price'].iloc[-1]):
+                    poc_price = data['poc_price'].iloc[-1]
+                    fig.add_hrect(
+                        y0=poc_price * 0.995,
+                        y1=poc_price * 1.005,
+                        line_width=0,
+                        fillcolor="green",
+                        opacity=0.2,
+                        annotation_text="POC (Fair Value)",
+                        annotation_position="top left"
+                    )
+                    fig.add_hline(
+                        y=poc_price,
+                        line_dash="dot",
+                        line_color="green",
+                        line_width=1
+                    )
+                if all(col in data for col in ['senkou_a', 'senkou_b']):
                     fig.add_trace(
                         go.Scatter(
-                            x=sentiment_times,
-                            y=[data['close'].max() * 1.1] * len(sentiment_times),  # Plot above price chart
-                            mode='text',
-                            text=[f'F&G: {v}' for v in sentiment_values],
-                            name='Fear & Greed',
-                            textposition='top center',
-                            showlegend=True
+                            x=data.index,
+                            y=data['senkou_a'],
+                            name='Senkou A',
+                            line=dict(color='green', width=1),
+                            opacity=0.5
                         ),
                         row=1, col=1
                     )
-            # Update layout
-            fig.update_layout(
-                title=f"{symbol} Technical Analysis - Composite Score: {df[df['symbol'] == symbol]['composite_score'].iloc[0]:.1f}",
-                height=1200,
-                width=1400,
-                showlegend=True,
-                xaxis_rangeslider_visible=False,
-                template='plotly_dark'
-            )
-            fig.update_xaxes(title_text="Date", row=4, col=1)
-            fig.update_yaxes(title_text="Price", row=1, col=1)
-            fig.update_yaxes(title_text="RSI", range=[0, 100], row=3, col=1)
-            fig.update_yaxes(title_text="Volume", row=4, col=1)
-            fig.update_yaxes(title_text="Price", row=1, col=2)
-            # --- FIXED DIRECTORY CREATION AND SAFE FILENAMES ---
-            # Sanitize symbol for folder and filename
+                    fig.add_trace(
+                        go.Scatter(
+                            x=data.index,
+                            y=data['senkou_b'],
+                            name='Senkou B',
+                            line=dict(color='red', width=1),
+                            opacity=0.5
+                        ),
+                        row=1, col=1
+                    )
+                if 'rsi' in data and data['rsi'].notna().any():
+                    fig.add_trace(
+                        go.Scatter(
+                            x=data.index,
+                            y=data['rsi'],
+                            name='RSI',
+                            line=dict(color='magenta', width=1.5)
+                        ),
+                        row=3, col=1
+                    )
+                if 'volume' in data and data['volume'].notna().any():
+                    fig.add_trace(
+                        go.Bar(
+                            x=data.index,
+                            y=data['volume'],
+                            name='Volume',
+                            marker_color='blue',
+                            opacity=0.5
+                        ),
+                        row=4, col=1
+                    )
+                if 'volume_hist' in data and data['volume_hist'] is not None and 'close' in data:
+                    try:
+                        price_bins = np.linspace(data['close'].min(), data['close'].max(), len(data['volume_hist']))
+                        fig.add_trace(
+                            go.Bar(
+                                x=price_bins,
+                                y=data['volume_hist'],
+                                name='Volume Profile',
+                                marker_color='orange',
+                                orientation='h',
+                                opacity=0.5
+                            ),
+                            row=1, col=2
+                        )
+                    except Exception:
+                        pass
+                # --- Robust timestamp_hist handling for sentiment overlay ---
+                if self.fear_greed_history and self.timestamp_history:
+                    # Convert data.index to timezone-aware UTC datetimes
+                    if not hasattr(data.index, 'tzinfo') or data.index.tzinfo is None:
+                        try:
+                            data_index_utc = data.index.tz_localize('UTC')
+                        except Exception:
+                            data_index_utc = [
+                                dt.replace(tzinfo=timezone.utc) if isinstance(dt, datetime) and dt.tzinfo is None else dt
+                                for dt in data.index
+                            ]
+                            data_index_utc = pd.to_datetime(data_index_utc)
+                    else:
+                        data_index_utc = data.index
+                    # Use first timestamp for filtering
+                    if hasattr(data_index_utc, '__getitem__') and len(data_index_utc) > 0:
+                        first_utc = data_index_utc[0]
+                    else:
+                        first_utc = None
+                    # Robustly handle self.timestamp_history as list, np.ndarray, or pd.Series
+                    sentiment_times = []
+                    if self.timestamp_history is not None:
+                        import numpy as np
+                        import pandas as pd
+                        thist = self.timestamp_history
+                        if isinstance(thist, pd.Series):
+                            thist = pd.to_datetime(thist)
+                            if first_utc is not None:
+                                sentiment_times = thist[thist >= first_utc].tolist()
+                            else:
+                                sentiment_times = thist.tolist()
+                        elif isinstance(thist, np.ndarray):
+                            if not np.issubdtype(thist.dtype, np.datetime64):
+                                thist = pd.to_datetime(thist)
+                            if first_utc is not None:
+                                sentiment_times = [t for t in thist.tolist() if pd.to_datetime(t) >= first_utc]
+                            else:
+                                sentiment_times = thist.tolist()
+                        elif isinstance(thist, list):
+                            if first_utc is not None:
+                                sentiment_times = [t for t in thist if pd.to_datetime(t) >= first_utc]
+                            else:
+                                sentiment_times = thist
+                        else:
+                            try:
+                                sentiment_times = list(thist)
+                            except Exception:
+                                sentiment_times = []
+                    sentiment_values = self.fear_greed_history[-len(sentiment_times):] if sentiment_times else []
+                    if sentiment_times and len(sentiment_times) == len(sentiment_values):
+                        fig.add_trace(
+                            go.Scatter(
+                                x=sentiment_times,
+                                y=[data['close'].max() * 1.1] * len(sentiment_times),
+                                mode='text',
+                                text=[f'F&G: {v}' for v in sentiment_values],
+                                name='Fear & Greed',
+                                textposition='top center',
+                                showlegend=True
+                            ),
+                            row=1, col=1
+                        )
+                # Defensive: get composite_score for title
+                try:
+                    comp_score = df[df['symbol'] == symbol]['composite_score'].iloc[0]
+                except Exception:
+                    comp_score = 0.0
+                fig.update_layout(
+                    title=f"{symbol} Technical Analysis - Composite Score: {comp_score:.1f}",
+                    height=1200,
+                    width=1400,
+                    showlegend=True,
+                    xaxis_rangeslider_visible=False,
+                    template='plotly_dark'
+                )
+                fig.update_xaxes(title_text="Date", row=4, col=1)
+                fig.update_yaxes(title_text="Price", row=1, col=1)
+                fig.update_yaxes(title_text="RSI", range=[0, 100], row=3, col=1)
+                fig.update_yaxes(title_text="Volume", row=4, col=1)
+                fig.update_yaxes(title_text="Price", row=1, col=2)
             safe_symbol = symbol.replace("/", "_").replace(":", "_")
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             save_dir = Path(save_path or f"plots/{safe_symbol}")
             save_dir.mkdir(parents=True, exist_ok=True)
             filename = f"{safe_symbol}_analysis_{timestamp}.html"
             full_path = save_dir / filename
-
             try:
                 fig.write_html(str(full_path))
                 logger.info(f"Analysis plot for {symbol} saved to {full_path}")
             except Exception as e:
                 logger.error(f"Failed to save plot for {symbol}: {str(e)}")
-        return str(full_path) if full_path is not None else None
+        # If no plots were generated, return None
+        return str(full_path) if full_path else None
 
 
 
@@ -1944,46 +2284,51 @@ async def main():
     # Configuration
     config = get_dynamic_config()
     
-    # Try different exchanges in order of preference
+    # Try different exchanges in order of preference (crypto first)
     exchanges_to_try = [
-        ('kucoinfutures', ccxt_async.kucoinfutures),
-        ('kucoin', ccxt_async.kucoin),
-        ('binance', ccxt_async.binance),
+        ('binance', getattr(ccxt_async, 'binance', None)),
+        ('kucoin', getattr(ccxt_async, 'kucoin', None)),
+        ('bybit', getattr(ccxt_async, 'bybit', None)),
+        ('okx', getattr(ccxt_async, 'okx', None)),
+        ('kucoinfutures', getattr(ccxt_async, 'kucoinfutures', None)),
+        ('oanda', getattr(ccxt_async, 'oanda', None)),
+        ('fxcm', getattr(ccxt_async, 'fxcm', None)),
     ]
-    
+
     exchange = None
     for exchange_name, exchange_class in exchanges_to_try:
+        if exchange_class is None:
+            continue
         try:
             exchange = exchange_class({
                 'enableRateLimit': True,
                 'rateLimit': 100,
                 'timeout': 30000,
             })
-            
             # Test connection
             await exchange.load_markets()
             logger.info(f"Successfully connected to {exchange_name}")
             break
-            
         except Exception as e:
             logger.warning(f"Failed to connect to {exchange_name}: {e}")
             if exchange:
                 await exchange.close()
             exchange = None
             continue
-    
+
+    # Fallback to yfinance adapter if no exchange is available
     if not exchange:
-        logger.error("Could not connect to any exchange. Exiting.")
-        return
+        logger.warning("No CCXT crypto exchange available, falling back to yfinance for crypto data.")
+        exchange = YFinanceForexAdapter()
     
     try:
-        # Initialize scanner
+        # Initialize scanner for crypto
         scanner = MomentumScanner(
             exchange=exchange,
             config=config,
             market_type='crypto',
             quote_currency='USDT',
-            min_volume_usd=500_000,  # Higher minimum for quality
+            min_volume_usd=500_000,  # Lower minimum for crypto
             top_n=30
         )
         
@@ -2007,7 +2352,7 @@ async def main():
             logger.info("Starting strategy backtest...")
             backtest_results = await scanner.backtest_strategy(
                 timeframe='daily',
-                lookback_periods=30
+                lookback_periods=67
             )
             
             if not backtest_results.empty:
@@ -2033,7 +2378,13 @@ async def main():
         logger.error(f"Unexpected error in main: {e}", exc_info=True)
     finally:
         if exchange:
-            await exchange.close()
+            close_method = getattr(exchange, 'close', None)
+            if close_method:
+                import inspect
+                if inspect.iscoroutinefunction(close_method):
+                    await close_method()
+                else:
+                    close_method()
             logger.info("Exchange connection closed")
 
 

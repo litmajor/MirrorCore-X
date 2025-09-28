@@ -21,6 +21,7 @@ class MirrorCoreBayesianIntegration:
     def __init__(self, sync_bus, enable_bayesian: bool = True):
         self.sync_bus = sync_bus
         self.enabled = enable_bayesian
+        self.bayesian_enhancement = None  # Instance of BayesianOracleEnhancement
         self.enhanced_oracle = None
         self.enhanced_trainer = None
         self.monitor = None
@@ -47,28 +48,23 @@ class MirrorCoreBayesianIntegration:
                 'strategy_trainer': strategy_trainer
             }
             
-            # Create enhanced components
-            self.enhanced_oracle = EnhancedTradingOracleEngine(
-                original_oracle, strategy_trainer
-            )
-            
-            self.enhanced_trainer = BayesianStrategyTrainerEnhancement(
-                strategy_trainer
-            )
-            
-            # Link them together
-            self.enhanced_trainer.bayesian_oracle = self.enhanced_oracle.bayesian_enhancement
-            
+            # Create the core Bayesian enhancement object
+            self.bayesian_enhancement = BayesianOracleEnhancement()
+
+            # Create enhanced components, passing the Bayesian enhancement
+            self.enhanced_oracle = EnhancedTradingOracleEngine(self.bayesian_enhancement)
+            self.enhanced_trainer = BayesianStrategyTrainerEnhancement(self.bayesian_enhancement)
+
             # Replace in sync_bus
             self.sync_bus.detach("oracle")
-            self.sync_bus.detach("strategy_trainer") 
+            self.sync_bus.detach("strategy_trainer")
             self.sync_bus.attach("enhanced_oracle", self.enhanced_oracle)
             self.sync_bus.attach("enhanced_strategy_trainer", self.enhanced_trainer)
-            
+
             # Add monitor
-            self.monitor = BayesianMonitor(self.enhanced_oracle.bayesian_enhancement)
+            self.monitor = BayesianMonitor(self.bayesian_enhancement)
             self.sync_bus.attach("bayesian_monitor", self.monitor)
-            
+
             logger.info("Bayesian enhancements successfully applied")
             return True
             
@@ -96,30 +92,32 @@ class MirrorCoreBayesianIntegration:
     
     def get_bayesian_insights(self) -> Optional[Dict[str, Any]]:
         """Get current Bayesian insights if available."""
-        if not self.enabled or not self.enhanced_oracle:
+        if not self.enabled or not self.bayesian_enhancement:
             return None
-            
         try:
-            return self.enhanced_oracle.bayesian_enhancement.get_strategy_recommendation()
+            # Use a minimal empty DataFrame if no data is available
+            import pandas as pd
+            empty_df = pd.DataFrame()
+            return self.bayesian_enhancement.get_strategy_recommendation(empty_df)
         except Exception as e:
             logger.error(f"Failed to get Bayesian insights: {e}")
             return None
     
     async def export_beliefs(self, filename: str = "bayesian_beliefs.json") -> bool:
         """Export current beliefs state."""
-        if not self.enabled or not self.enhanced_oracle:
+        if not self.enabled or not self.bayesian_enhancement:
             return False
-            
         try:
             import json
-            beliefs_state = self.enhanced_oracle.bayesian_enhancement.export_beliefs_state()
-            
+            # You may want to implement export_beliefs_state in BayesianOracleEnhancement
+            if hasattr(self.bayesian_enhancement, 'export_beliefs_summary'):
+                beliefs_state = self.bayesian_enhancement.export_beliefs_summary().to_dict(orient='records')
+            else:
+                beliefs_state = {}
             with open(filename, 'w') as f:
                 json.dump(beliefs_state, f, indent=2)
-                
             logger.info(f"Bayesian beliefs exported to {filename}")
             return True
-            
         except Exception as e:
             logger.error(f"Failed to export beliefs: {e}")
             return False
@@ -127,8 +125,8 @@ class MirrorCoreBayesianIntegration:
 class BayesianMonitor:
     """Monitor agent for Bayesian system health."""
     
-    def __init__(self, bayesian_oracle):
-        self.bayesian_oracle = bayesian_oracle
+    def __init__(self, bayesian_enhancement):
+        self.bayesian_enhancement = bayesian_enhancement
         self.last_decay = 0.0
         self.decay_interval = 3600.0  # 1 hour
         self.health_checks = 0
@@ -140,23 +138,25 @@ class BayesianMonitor:
         current_time = time.time()
         self.health_checks += 1
         
-        # Apply periodic decay
+        # Apply periodic decay (if implemented)
         if current_time - self.last_decay > self.decay_interval:
             try:
-                self.bayesian_oracle.apply_decay()
+                if hasattr(self.bayesian_enhancement, 'decay_old_beliefs'):
+                    self.bayesian_enhancement.decay_old_beliefs()
                 self.last_decay = current_time
                 logger.debug("Applied Bayesian belief decay")
             except Exception as e:
                 logger.error(f"Belief decay failed: {e}")
-        
+
         # Export state periodically
         beliefs_state = None
         if self.health_checks % 100 == 0:  # Every 100 ticks
             try:
-                beliefs_state = self.bayesian_oracle.export_beliefs_state()
+                if hasattr(self.bayesian_enhancement, 'export_beliefs_summary'):
+                    beliefs_state = self.bayesian_enhancement.export_beliefs_summary().to_dict(orient='records')
             except Exception as e:
                 logger.error(f"Beliefs export failed: {e}")
-        
+
         return {
             "bayesian_health": {
                 "last_decay": self.last_decay,
@@ -225,19 +225,28 @@ class BayesianConfig:
         
     def apply_to_integration(self, integration: MirrorCoreBayesianIntegration):
         """Apply config to integration instance."""
-        if integration.enhanced_oracle:
+        if integration.bayesian_enhancement:
             # Apply configuration to Bayesian components
-            bayesian_oracle = integration.enhanced_oracle.bayesian_enhancement
-            
+            bayesian_oracle = integration.bayesian_enhancement
             # Update regime detector
-            if hasattr(bayesian_oracle.regime_detector, 'regime_sensitivity'):
-                bayesian_oracle.regime_detector.regime_sensitivity = self.regime_sensitivity
-            
+            if hasattr(bayesian_oracle.base_oracle, 'market_regime_detector'):
+                detector = bayesian_oracle.base_oracle.market_regime_detector
+                # Only set regime_sensitivity if the attribute exists
+                if hasattr(detector, 'regime_sensitivity'):
+                    detector.regime_sensitivity = self.regime_sensitivity
+                else:
+                    logger.warning("MarketRegimeDetector has no attribute 'regime_sensitivity'; skipping assignment.")
             # Update belief trackers
-            for belief in bayesian_oracle.strategy_beliefs.values():
-                belief.overall_belief.decay_factor = self.decay_factor
+            for belief in bayesian_oracle.base_oracle.strategy_beliefs.values():
+                if hasattr(belief.overall_belief, 'decay_factor'):
+                    belief.overall_belief.decay_factor = self.decay_factor
+                else:
+                    logger.warning(f"BeliefTracker for {getattr(belief, 'name', 'unknown')} has no attribute 'decay_factor'; skipping assignment.")
                 for regime_belief in belief.regime_beliefs.values():
-                    regime_belief.decay_factor = self.decay_factor
+                    if hasattr(regime_belief, 'decay_factor'):
+                        regime_belief.decay_factor = self.decay_factor
+                    else:
+                        logger.warning(f"Regime BeliefTracker has no attribute 'decay_factor'; skipping assignment.")
         
         if integration.monitor:
             integration.monitor.decay_interval = self.decay_interval

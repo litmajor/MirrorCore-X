@@ -1,3 +1,4 @@
+
 """
 Seven Additional Strategy Modules for MirrorCore-X Trading System
 
@@ -36,6 +37,28 @@ class BaseStrategyAgent:
 
 # 1. MEAN REVERSION STRATEGY
 class MeanReversionAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        """Compatibility: Evaluate signal for a DataFrame (single symbol or multi-row)."""
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        # Aggregate signals if multiple symbols
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Bollinger Bands + RSI mean reversion strategy
     - Identifies overbought/oversold conditions
@@ -105,6 +128,26 @@ class MeanReversionAgent(BaseStrategyAgent):
 
 # 2. MOMENTUM BREAKOUT STRATEGY
 class MomentumBreakoutAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     ATR-based breakout strategy with volume confirmation
     - Identifies high-momentum breakouts
@@ -181,6 +224,26 @@ class MomentumBreakoutAgent(BaseStrategyAgent):
 
 # 3. VOLATILITY REGIME STRATEGY
 class VolatilityRegimeAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Adapts strategy based on market volatility regime
     - Low vol: Mean reversion bias
@@ -269,6 +332,26 @@ class VolatilityRegimeAgent(BaseStrategyAgent):
 
 # 4. PAIRS TRADING STRATEGY
 class PairsTradingAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Statistical arbitrage between correlated pairs
     - Identifies co-integrated pairs
@@ -352,6 +435,26 @@ class PairsTradingAgent(BaseStrategyAgent):
 
 # 5. ANOMALY DETECTION STRATEGY
 class AnomalyDetectionAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Machine learning-based anomaly detection
     - Uses Isolation Forest to detect unusual price/volume patterns
@@ -381,7 +484,7 @@ class AnomalyDetectionAgent(BaseStrategyAgent):
         features['volume_ratio'] = df['volume'] / df['volume'].rolling(20).mean()
         
         # Technical indicators
-        features['rsi'] = talib.RSI(df['close'].values, timeperiod=14)
+        features['rsi'] = talib.RSI(np.asarray(df['close'], dtype=np.float64), timeperiod=14)
         features['bb_position'] = (df['close'] - df['close'].rolling(20).mean()) / df['close'].rolling(20).std()
         
         # Microstructure features
@@ -427,10 +530,10 @@ class AnomalyDetectionAgent(BaseStrategyAgent):
                             # Contrarian signal on anomalies
                             if anomaly_score < -0.5:  # Strong negative anomaly
                                 signal = 'Buy'  # Price likely oversold
-                                confidence = min(0.8, abs(anomaly_score))
+                                confidence = min(0.8, float(abs(anomaly_score)))
                             elif anomaly_score > 0.5:  # Strong positive anomaly
                                 signal = 'Sell'  # Price likely overbought
-                                confidence = min(0.8, abs(anomaly_score))
+                                confidence = min(0.8, float(abs(anomaly_score)))
                             else:
                                 signal = 'Hold'
                                 confidence = 0.3
@@ -454,6 +557,26 @@ class AnomalyDetectionAgent(BaseStrategyAgent):
 
 # 6. SENTIMENT MOMENTUM STRATEGY
 class SentimentMomentumAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Combines technical momentum with sentiment analysis
     - Uses price momentum + volume + implied sentiment
@@ -547,6 +670,26 @@ class SentimentMomentumAgent(BaseStrategyAgent):
 
 # 7. REGIME CHANGE DETECTION STRATEGY
 class RegimeChangeAgent(BaseStrategyAgent):
+    def evaluate(self, df):
+        result = self.update({'market_data_df': df})
+        signals = result.get(f"{self.name}_signals", {})
+        if not signals:
+            return 0.0
+        values = []
+        for symbol, signal_data in signals.items():
+            signal = signal_data.get('signal', 'Hold')
+            confidence = signal_data.get('confidence', 0.5)
+            if signal == 'Strong Buy':
+                values.append(1.0 * confidence)
+            elif signal == 'Buy':
+                values.append(0.7 * confidence)
+            elif signal == 'Strong Sell':
+                values.append(-1.0 * confidence)
+            elif signal == 'Sell':
+                values.append(-0.7 * confidence)
+            else:
+                values.append(0.0)
+        return float(np.mean(values)) if values else 0.0
     """
     Detects structural breaks and regime changes in market behavior
     - Uses Hidden Markov Models concepts
@@ -594,7 +737,7 @@ class RegimeChangeAgent(BaseStrategyAgent):
         change_detected = (new_regime != self.current_regime and 
                          self.current_regime != 'UNKNOWN')
         
-        confidence = max(vol_percentile, trend_percentile) if change_detected else 0.3
+        confidence = max(float(vol_percentile), float(trend_percentile)) if change_detected else 0.3
         
         return {
             'regime': new_regime,
@@ -695,3 +838,505 @@ def register_additional_strategies(strategy_trainer):
         
     except Exception as e:
         logger.error(f"Failed to register additional strategies: {e}")
+
+# === ENSEMBLE SIGNAL FUNCTION ===
+def ensemble_signal(
+    agents_outputs,
+    weights=None,
+    meta_model=None,
+    meta_features=None,
+    dynamic_weights_func=None,
+    majority_vote=False,
+    majority_priority=None,
+    dynamic_context=None,
+    bayesian_averaging=False,
+    bayesian_priors=None,
+    regime_switching_func=None,
+    regime_context=None,
+    correlation_filtering=False,
+    correlation_matrix=None,
+    correlation_threshold=0.85,
+    diversity_penalty=False,
+    diversity_bonus=False,
+    diversity_strength=0.2,
+    time_decay_func=None,
+    time_decay_context=None,
+    calibrate_confidence_func=None,
+    calibration_context=None,
+    # --- Custom Rule-Based Aggregation ---
+    min_agree_count=None,  # int, minimum number of strategies that must agree (directional)
+    require_strategies=None,  # list of agent names, require confirmation from these
+    require_signals=None,  # dict {agent_name: required_signal}
+    # --- Ensemble Explainability ---
+    explainability=False
+):
+    """
+    Ensemble signal with support for weighted voting, dynamic weighting, majority voting, Bayesian model averaging, regime-switching, and stacked ensemble (meta-model).
+    agents_outputs: dict of {agent_name: {symbol: {'signal': 'Buy'|'Sell'|'Hold', 'confidence': float}}}
+    weights: dict of {agent_name: float} (optional, static weights)
+    meta_model: sklearn-like model with predict_proba or predict (optional)
+    meta_features: dict of {symbol: feature_vector} (optional, for meta_model)
+    dynamic_weights_func: callable(agents_outputs, symbol, context) -> dict of weights (optional)
+    majority_vote: bool, if True use majority/plurality voting
+    majority_priority: list of agent names (optional, for tie-breaks)
+    dynamic_context: dict, extra context for dynamic weighting (e.g., recent accuracy, regime, volatility)
+    bayesian_averaging: bool, if True use Bayesian model averaging
+    bayesian_priors: dict of {agent_name: float} (optional, prior beliefs)
+    regime_switching_func: callable(symbol, regime_context) -> dict of weights or agent set (optional)
+    regime_context: dict, extra context for regime switching (e.g., detected regime)
+    returns: dict {symbol: {'consensus': float, 'direction': str, ...}}
+    """
+    consensus = {}
+    all_agents = list(agents_outputs.keys())
+
+    for symbol in {s for out in agents_outputs.values() for s in out}:
+        explain = {} if explainability else None
+        # --- Correlation/Redundancy Filtering ---
+        filtered_agents = list(all_agents)
+        if correlation_filtering and correlation_matrix is not None:
+            # Remove or downweight highly correlated agents
+            keep = set(filtered_agents)
+            for i, a1 in enumerate(filtered_agents):
+                for j, a2 in enumerate(filtered_agents):
+                    if i < j:
+                        corr = correlation_matrix.get((a1, a2), correlation_matrix.get((a2, a1), 0))
+                        if abs(corr) >= correlation_threshold:
+                            # Remove one of the pair (arbitrary: remove a2)
+                            if a2 in keep:
+                                keep.remove(a2)
+            filtered_agents = [a for a in filtered_agents if a in keep]
+        else:
+            filtered_agents = list(all_agents)
+
+        # --- Custom Rule-Based Aggregation: Pre-checks ---
+        # 1. Require confirmation from specific strategies
+        if require_strategies:
+            for req_agent in require_strategies:
+                agent_out = agents_outputs.get(req_agent, {}).get(symbol, {})
+                if not agent_out or agent_out.get('signal', 'Hold') == 'Hold':
+                    if explainability:
+                        consensus[symbol] = {
+                            'consensus': 0.0,
+                            'direction': 'Hold',
+                            'explain': {'blocked_by': req_agent}
+                        }
+                    else:
+                        consensus[symbol] = {'consensus': 0.0, 'direction': 'Hold'}
+                    continue
+        # 2. Require specific signals from agents
+        if require_signals:
+            for agent, req_signal in require_signals.items():
+                agent_out = agents_outputs.get(agent, {}).get(symbol, {})
+                if not agent_out or agent_out.get('signal', 'Hold') != req_signal:
+                    if explainability:
+                        consensus[symbol] = {
+                            'consensus': 0.0,
+                            'direction': 'Hold',
+                            'explain': {'blocked_by': agent, 'required_signal': req_signal}
+                        }
+                    else:
+                        consensus[symbol] = {'consensus': 0.0, 'direction': 'Hold'}
+                    continue
+
+        # --- Regime-Switching Ensemble ---
+        if regime_switching_func is not None:
+            regime_weights = regime_switching_func(symbol, regime_context)
+            if regime_weights and isinstance(regime_weights, dict):
+                w = {k: v for k, v in regime_weights.items() if k in filtered_agents}
+            else:
+                w = {agent: 1.0 for agent in filtered_agents}
+        # --- Dynamic Weighting ---
+        elif dynamic_weights_func is not None:
+            w = dynamic_weights_func(agents_outputs, symbol, dynamic_context)
+            if not w or not isinstance(w, dict):
+                w = {agent: 1.0 for agent in filtered_agents}
+            else:
+                w = {k: v for k, v in w.items() if k in filtered_agents}
+        elif weights is not None:
+            w = {k: v for k, v in weights.items() if k in filtered_agents}
+        else:
+            w = {agent: 1.0 for agent in filtered_agents}
+        # --- Time-Decayed Aggregation ---
+        if time_decay_func is not None:
+            decay_w = time_decay_func(agents_outputs, symbol, time_decay_context)
+            if decay_w and isinstance(decay_w, dict):
+                for k in w:
+                    w[k] = w[k] * decay_w.get(k, 1.0)
+        # Normalize weights
+        total_weight = sum(w.values())
+        if total_weight == 0:
+            total_weight = 1.0
+        w = {k: v / total_weight for k, v in w.items()}
+
+        # --- Bayesian Model Averaging ---
+        if bayesian_averaging:
+            # Use priors if provided, else uniform
+            priors = bayesian_priors if bayesian_priors else {agent: 1.0 for agent in filtered_agents}
+            # Normalize priors
+            total_prior = sum(priors.values())
+            if total_prior == 0:
+                total_prior = 1.0
+            priors = {k: v / total_prior for k, v in priors.items()}
+            # For each agent, treat confidence as likelihood, update posterior
+            posteriors = {}
+            for agent in filtered_agents:
+                raw = agents_outputs.get(agent, {}).get(symbol, {})
+                conf = raw.get('confidence', 0.5)
+                posteriors[agent] = priors.get(agent, 1.0) * conf
+            # Normalize posteriors
+            total_post = sum(posteriors.values())
+            if total_post == 0:
+                total_post = 1.0
+            posteriors = {k: v / total_post for k, v in posteriors.items()}
+            # Weighted sum of signals using posteriors
+            score = 0
+            agent_contrib = {} if explainability else None
+            for agent in filtered_agents:
+                raw = agents_outputs.get(agent, {}).get(symbol, {})
+                sign = {'Buy': 1, 'Sell': -1, 'Hold': 0}.get(raw.get('signal', 'Hold'), 0)
+                contrib = sign * posteriors.get(agent, 0)
+                score += contrib
+                if agent_contrib is not None:
+                    agent_contrib[agent] = contrib
+            # --- Signal Diversity Penalty/Bonus ---
+            if diversity_penalty or diversity_bonus:
+                sigs = [agents_outputs.get(agent, {}).get(symbol, {}).get('signal', 'Hold') for agent in filtered_agents]
+                unique_sigs = set(sigs)
+                if len(unique_sigs) == 1 and diversity_penalty:
+                    score *= (1 - diversity_strength)
+                elif len(unique_sigs) > 1 and diversity_bonus:
+                    score *= (1 + diversity_strength)
+            result = {
+                'consensus': score,
+                'direction': 'Buy' if score > 0.5 else 'Sell' if score < -0.5 else 'Hold',
+                'bayesian_posteriors': posteriors
+            }
+            if explainability:
+                result['explain'] = {'agent_contributions': agent_contrib}
+            consensus[symbol] = result
+            continue
+
+        # --- Majority Voting ---
+        if majority_vote:
+            votes = []
+            confs = []
+            agent_vote_map = {} if explainability else None
+            for agent in filtered_agents:
+                raw = agents_outputs.get(agent, {}).get(symbol, {})
+                signal = raw.get('signal', 'Hold')
+                votes.append(signal)
+                confs.append(raw.get('confidence', 0))
+                if agent_vote_map is not None:
+                    agent_vote_map[agent] = signal
+            # Count votes
+            from collections import Counter
+            vote_counts = Counter(votes)
+            top_vote, top_count = vote_counts.most_common(1)[0]
+            # Check for tie
+            tied = [k for k, v in vote_counts.items() if v == top_count]
+            if len(tied) > 1:
+                # Tie-break: use confidence sum, then priority
+                conf_sums = {sig: sum([c for v, c in zip(votes, confs) if v == sig]) for sig in tied}
+                max_conf = max(conf_sums.values())
+                conf_tied = [sig for sig, s in conf_sums.items() if s == max_conf]
+                if len(conf_tied) == 1:
+                    final = conf_tied[0]
+                elif majority_priority:
+                    for agent in majority_priority:
+                        idxs = [i for i, v in enumerate(votes) if v == conf_tied[0]]
+                        if idxs:
+                            final = votes[idxs[0]]
+                            break
+                    else:
+                        final = conf_tied[0]
+                else:
+                    final = conf_tied[0]
+            else:
+                final = top_vote
+            # --- Custom Rule-Based Aggregation: min_agree_count ---
+            if min_agree_count is not None:
+                if vote_counts[final] < min_agree_count:
+                    result = {
+                        'consensus': 0.0,
+                        'direction': 'Hold',
+                        'majority_counts': dict(vote_counts)
+                    }
+                    if explainability:
+                        result['explain'] = {'min_agree_count': min_agree_count, 'actual_agree': vote_counts[final], 'agent_votes': agent_vote_map}
+                    consensus[symbol] = result
+                    continue
+            # --- Signal Diversity Penalty/Bonus ---
+            if diversity_penalty or diversity_bonus:
+                unique_sigs = set(votes)
+                if len(unique_sigs) == 1 and diversity_penalty:
+                    consensus_score = 0.0 * (1 - diversity_strength)
+                elif len(unique_sigs) > 1 and diversity_bonus:
+                    consensus_score = 0.0 * (1 + diversity_strength)
+                else:
+                    consensus_score = 0.0
+            else:
+                consensus_score = 0.0
+            result = {
+                'consensus': consensus_score,
+                'direction': final,
+                'majority_counts': dict(vote_counts)
+            }
+            if explainability:
+                result['explain'] = {'agent_votes': agent_vote_map}
+            consensus[symbol] = result
+        else:
+            # --- Weighted Voting (static, dynamic, regime, or filtered) ---
+            score = 0
+            feature_vec = []
+            agent_contrib = {} if explainability else None
+            for agent in filtered_agents:
+                raw = agents_outputs.get(agent, {}).get(symbol, {})
+                sign = {'Buy': 1, 'Sell': -1, 'Hold': 0}.get(raw.get('signal', 'Hold'), 0)
+                conf = raw.get('confidence', 0)
+                contrib = sign * conf * w.get(agent, 1.0)
+                score += contrib
+                feature_vec.extend([sign, conf])
+                if agent_contrib is not None:
+                    agent_contrib[agent] = contrib
+            # --- Custom Rule-Based Aggregation: min_agree_count ---
+            if min_agree_count is not None:
+                # Count number of agents with same direction as consensus
+                dir_map = {1: 'Buy', -1: 'Sell', 0: 'Hold'}
+                agent_dirs = [dir_map.get({'Buy': 1, 'Sell': -1, 'Hold': 0}.get(agents_outputs.get(agent, {}).get(symbol, {}).get('signal', 'Hold'), 0)) for agent in filtered_agents]
+                # Find most common direction
+                from collections import Counter
+                dir_counts = Counter(agent_dirs)
+                top_dir, top_count = dir_counts.most_common(1)[0]
+                if top_count < min_agree_count:
+                    result = {
+                        'consensus': 0.0,
+                        'direction': 'Hold',
+                        'dir_counts': dict(dir_counts)
+                    }
+                    if explainability:
+                        result['explain'] = {'min_agree_count': min_agree_count, 'actual_agree': top_count, 'agent_contributions': agent_contrib}
+                    consensus[symbol] = result
+                    continue
+            # --- Signal Diversity Penalty/Bonus ---
+            if diversity_penalty or diversity_bonus:
+                sigs = [agents_outputs.get(agent, {}).get(symbol, {}).get('signal', 'Hold') for agent in filtered_agents]
+                unique_sigs = set(sigs)
+                if len(unique_sigs) == 1 and diversity_penalty:
+                    score *= (1 - diversity_strength)
+                elif len(unique_sigs) > 1 and diversity_bonus:
+                    score *= (1 + diversity_strength)
+            # Meta-model prediction (stacked ensemble)
+            meta_pred = None
+            if meta_model is not None:
+                X = [meta_features[symbol]] if (meta_features and symbol in meta_features) else [feature_vec]
+                try:
+                    if hasattr(meta_model, 'predict_proba'):
+                        proba = meta_model.predict_proba(X)[0]
+                        pred_idx = int(np.argmax(proba))
+                        pred_map = {0: 'Sell', 1: 'Hold', 2: 'Buy'}
+                        meta_pred = {'proba': proba.tolist(), 'direction': pred_map.get(pred_idx, 'Hold')}
+                    else:
+                        pred = meta_model.predict(X)[0]
+                        pred_map = {0: 'Sell', 1: 'Hold', 2: 'Buy'}
+                        meta_pred = {'direction': pred_map.get(pred, 'Hold')}
+                except Exception as e:
+                    logger.error(f"Meta-model prediction failed for {symbol}: {e}")
+                    meta_pred = None
+            # --- Ensemble Confidence Calibration ---
+            calibrated_score = score
+            if calibrate_confidence_func is not None:
+                calibrated_score = calibrate_confidence_func(score, agents_outputs, symbol, calibration_context)
+            result = {
+                'consensus': calibrated_score,
+                'direction': 'Buy' if calibrated_score > 0.5 else 'Sell' if calibrated_score < -0.5 else 'Hold',
+            }
+            if meta_pred is not None:
+                result['meta_pred'] = meta_pred
+            if explainability:
+                result['explain'] = {'agent_contributions': agent_contrib}
+            consensus[symbol] = result
+    return consensus
+
+# === STRATEGY ENSEMBLE RUNNER ===
+def run_all_strategies_and_ensemble(market_data_df, weights=None, meta_model=None, meta_features=None):
+    """
+    Runs all strategy agents, collects their signals, and returns the ensemble consensus.
+    Supports weighted voting and stacked ensemble (meta-model).
+    Args:
+        market_data_df: pd.DataFrame with market data (must include 'symbol', 'close', etc.)
+        weights: dict of {agent_name: float} (optional)
+        meta_model: sklearn-like model (optional)
+        meta_features: dict of {symbol: feature_vector} (optional)
+    Returns:
+        dict: {symbol: {'consensus': float, 'direction': str, 'meta_pred': optional}}
+    """
+    # If only one row per symbol (scanner summary), use a fallback ensemble logic
+    if market_data_df.groupby('symbol').size().max() == 1:
+        # Use the scanner's own signal and confidence columns if available
+        agents_outputs = {}
+        for _, row in market_data_df.iterrows():
+            symbol = row['symbol']
+            # Map scanner's signal to ensemble format
+            signal = row['signal'] if 'signal' in row else 'Hold'
+            confidence = float(row['confidence_score']) if 'confidence_score' in row else 0.5
+            agents_outputs.setdefault('SCANNER', {})[symbol] = {
+                'signal': signal,
+                'confidence': confidence
+            }
+        return ensemble_signal(agents_outputs, weights=weights, meta_model=meta_model, meta_features=meta_features)
+    # Otherwise, use the full time series strategies
+    agents = [
+        MeanReversionAgent(),
+        MomentumBreakoutAgent(),
+        VolatilityRegimeAgent(),
+        PairsTradingAgent(),
+        AnomalyDetectionAgent(),
+        SentimentMomentumAgent(),
+        RegimeChangeAgent(),
+    ]
+    agents_outputs = {}
+    for agent in agents:
+        result = agent.update({'market_data_df': market_data_df})
+        for k, v in result.items():
+            agents_outputs[k] = v
+    return ensemble_signal(agents_outputs, weights=weights, meta_model=meta_model, meta_features=meta_features)
+
+
+# === USAGE EXAMPLE ===
+if __name__ == "__main__":
+    import glob
+    import os
+    import glob
+    import os
+    import pandas as pd
+    # Try to find the latest scan results CSV from the scanner
+    scan_files = sorted(glob.glob("scan_results_daily_*.csv"), reverse=True)
+    if scan_files:
+        latest_scan = scan_files[0]
+        print(f"Loading scan results from: {latest_scan}")
+        market_data_df = pd.read_csv(latest_scan)
+        # --- Patch: Map price->close and fill missing OHLCV columns ---
+        if 'close' not in market_data_df.columns and 'price' in market_data_df.columns:
+            market_data_df['close'] = market_data_df['price']
+        for col in ['high', 'low', 'open', 'volume']:
+            if col not in market_data_df.columns:
+                market_data_df[col] = market_data_df['close']
+        if 'timestamp' not in market_data_df.columns:
+            market_data_df['timestamp'] = pd.Timestamp.now()
+
+        # --- Diagnostic: Print DataFrame shape and columns ---
+        print("\n[Diagnostic] Input DataFrame shape:", market_data_df.shape)
+        print("[Diagnostic] Input DataFrame columns:", list(market_data_df.columns))
+        print("[Diagnostic] First 2 rows:\n", market_data_df.head(2))
+
+        print("\n=== Running Strategy Ensemble on Scanner Results ===")
+        # --- Standard ensemble ---
+        consensus = run_all_strategies_and_ensemble(market_data_df)
+        print("\n[Standard Ensemble]")
+        for symbol, result in consensus.items():
+            meta_str = ''
+            if 'meta_pred' in result:
+                meta_str = f", Meta-Model: {result['meta_pred']}"
+            print(f"{symbol}: Consensus Score = {result['consensus']:.2f}, Direction = {result['direction']}{meta_str}")
+
+        # --- Custom Rule-Based Aggregation: Only act if at least 3 strategies agree ---
+        print("\n[Custom Rule-Based Aggregation: min_agree_count=3]")
+        consensus_rule = run_all_strategies_and_ensemble(
+            market_data_df,
+            # Pass through to ensemble_signal
+            weights=None,
+            meta_model=None,
+            meta_features=None
+        )
+        # Use ensemble_signal directly for custom args
+        agents = [
+            'MEAN_REVERSION_signals',
+            'MOMENTUM_BREAKOUT_signals',
+            'VOLATILITY_REGIME_signals',
+            'PAIRS_TRADING_signals',
+            'ANOMALY_DETECTION_signals',
+            'SENTIMENT_MOMENTUM_signals',
+            'REGIME_CHANGE_signals',
+        ]
+        # Rebuild agents_outputs for direct call
+        agents_outputs = {}
+        for agent in agents:
+            if agent in consensus_rule:
+                agents_outputs[agent] = consensus_rule[agent]
+        # Actually, agents_outputs should be built from the agent classes:
+        from additional_strategies import MeanReversionAgent, MomentumBreakoutAgent, VolatilityRegimeAgent, PairsTradingAgent, AnomalyDetectionAgent, SentimentMomentumAgent, RegimeChangeAgent
+        agent_objs = [
+            MeanReversionAgent(),
+            MomentumBreakoutAgent(),
+            VolatilityRegimeAgent(),
+            PairsTradingAgent(),
+            AnomalyDetectionAgent(),
+            SentimentMomentumAgent(),
+            RegimeChangeAgent(),
+        ]
+        agents_outputs = {}
+        for agent in agent_objs:
+            result = agent.update({'market_data_df': market_data_df})
+            for k, v in result.items():
+                agents_outputs[k] = v
+        consensus_custom = ensemble_signal(
+            agents_outputs,
+            min_agree_count=3,
+            explainability=True
+        )
+        for symbol, result in consensus_custom.items():
+            explain = result.get('explain', {})
+            print(f"{symbol}: Consensus = {result['consensus']:.2f}, Direction = {result['direction']}, Explain: {explain}")
+
+        # --- Require confirmation from a specific strategy (e.g., MEAN_REVERSION must be 'Buy') ---
+        print("\n[Custom Rule-Based Aggregation: require_signals={{'MEAN_REVERSION_signals': 'Buy'}}]")
+        consensus_req = ensemble_signal(
+            agents_outputs,
+            require_signals={'MEAN_REVERSION_signals': 'Buy'},
+            explainability=True
+        )
+        for symbol, result in consensus_req.items():
+            explain = result.get('explain', {})
+            print(f"{symbol}: Consensus = {result['consensus']:.2f}, Direction = {result['direction']}, Explain: {explain}")
+
+        # --- Ensemble Explainability: Show agent contributions ---
+        print("\n[Ensemble Explainability: agent_contributions]")
+        consensus_explain = ensemble_signal(
+            agents_outputs,
+            explainability=True
+        )
+        for symbol, result in consensus_explain.items():
+            explain = result.get('explain', {})
+            print(f"{symbol}: Consensus = {result['consensus']:.2f}, Direction = {result['direction']}, Agent Contributions: {explain.get('agent_contributions', {})}")
+
+    else:
+        print("No scan_results_multitf_*.csv file found. Please run the scanner first.")
+
+    print("\nUsage:\n"
+        "1. After running the scanner, use the resulting DataFrame (scanner.scan_results) or the saved CSV (scan_results_multitf_*.csv or scan_results_daily_*.csv).\n"
+        "2. Call run_all_strategies_and_ensemble(market_data_df, weights=..., meta_model=..., meta_features=..., min_agree_count=..., require_signals=..., explainability=...) to get the ensemble consensus.\n"
+        "   - 'weights' is an optional dict of agent weights for weighted voting.\n"
+        "   - 'meta_model' is an optional sklearn-like model for stacked ensemble.\n"
+        "   - 'meta_features' is an optional dict of {symbol: feature_vector} for meta_model.\n"
+        "   - 'min_agree_count', 'require_signals', 'explainability' are new advanced options.\n"
+        "3. The result is a dict: {symbol: {'consensus': float, 'direction': str, ...}} where direction is 'Buy', 'Sell', or 'Hold'.\n"
+        "4. You can integrate this with your trading logic, reporting, or further analysis.\n"
+        "\n--- Programmatic Example ---\n"
+        "from scanner import MomentumScanner\n"
+        "from additional_strategies import run_all_strategies_and_ensemble, ensemble_signal\n"
+        "scanner = MomentumScanner(...)  # configure as needed and run scan_market\n"
+        "market_data_df = scanner.scan_results  # after scan_market()\n"
+        "# Example: Weighted voting\n"
+        "weights = {'MEAN_REVERSION': 1.5, 'MOMENTUM_BREAKOUT': 1.0, ...}\n"
+        "consensus = run_all_strategies_and_ensemble(market_data_df, weights=weights)\n"
+        "# Example: Custom rule-based aggregation\n"
+        "consensus = ensemble_signal(agents_outputs, min_agree_count=3, explainability=True)\n"
+        "# Example: Require confirmation from a specific strategy\n"
+        "consensus = ensemble_signal(agents_outputs, require_signals={'MEAN_REVERSION_signals': 'Buy'}, explainability=True)\n"
+        "# Example: Stacked ensemble (meta-model)\n"
+        "from sklearn.linear_model import LogisticRegression\n"
+        "meta_model = LogisticRegression()  # Train on historical agent outputs\n"
+        "meta_features = {...}  # Dict of {symbol: feature_vector}\n"
+        "consensus = run_all_strategies_and_ensemble(market_data_df, meta_model=meta_model, meta_features=meta_features)\n"
+        "print(consensus)\n"
+    )

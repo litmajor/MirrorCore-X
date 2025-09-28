@@ -1,3 +1,4 @@
+
 import numpy as np
 from scipy.stats import beta
 from typing import Dict, List, Tuple, Optional
@@ -23,13 +24,20 @@ class MarketContext:
 
 class BeliefTracker:
     """Bayesian belief system for trading strategy components"""
-    
-    def __init__(self, prior_successes: float = 1.0, prior_failures: float = 1.0):
+
+    def __init__(self, prior_successes: float = 1.0, prior_failures: float = 1.0, decay_factor: float = 0.95):
         self.alpha = prior_successes  # Successes + prior
         self.beta = prior_failures    # Failures + prior
         self.total_observations = 0
         self.last_updated = None
-        
+        self.decay_factor = decay_factor
+
+    def set_decay_factor(self, decay: float):
+        self.decay_factor = decay
+
+    def get_decay_factor(self) -> float:
+        return self.decay_factor
+
     def update(self, success: bool, weight: float = 1.0):
         """Update beliefs with new evidence"""
         if success:
@@ -211,7 +219,7 @@ class MirrorCoreBayesianOracle:
             # Reset recent performance tracking to focus on new regime
             belief.recent_performance = []
             
-    def export_beliefs_summary(self) -> pd.DataFssrame:
+    def export_beliefs_summary(self) -> pd.DataFrame:
         """Export current beliefs for analysis"""
         
         summary_data = []
@@ -232,10 +240,18 @@ class MirrorCoreBayesianOracle:
 
 class MarketRegimeDetector:
     """Detect current market regime for contextual belief updating"""
-    
+
+    def __init__(self, regime_sensitivity: float = 0.3):
+        self.regime_sensitivity = regime_sensitivity
+
+    def set_regime_sensitivity(self, value: float):
+        self.regime_sensitivity = value
+
+    def get_regime_sensitivity(self) -> float:
+        return self.regime_sensitivity
+
     def detect_regime(self, data: pd.DataFrame) -> MarketContext:
         """Detect market regime from recent price data"""
-        
         if len(data) < 20:
             # Default context if insufficient data
             return MarketContext(
@@ -245,132 +261,220 @@ class MarketRegimeDetector:
                 trend_strength=0.0,
                 timestamp=datetime.now()
             )
-        
+
         # Calculate indicators
         returns = data['close'].pct_change().dropna()
         vol_20 = returns.rolling(20).std() * np.sqrt(252)
-        
+
         # Volume analysis (if available)
-        volume_ma = data.get('volume', pd.Series([1]*len(data))).rolling(20).mean()
-        volume_current = data.get('volume', pd.Series([1]*len(data))).iloc[-1]
-        
+        volume_series = data['volume'] if 'volume' in data.columns else pd.Series([1]*len(data))
+        volume_ma = volume_series.rolling(20).mean()
+        volume_current = volume_series.iloc[-1]
+
         # Trend strength (ADX-like calculation)
         high_low = (data['high'] - data['low']).rolling(14).mean()
         close_shift = abs(data['close'] - data['close'].shift(1)).rolling(14).mean()
-        trend_strength = close_shift / high_low if high_low.iloc[-1] > 0 else 0
-        
+        # Compute trend_strength as a float
+        if high_low.iloc[-1] > 0:
+            trend_strength_series = close_shift / high_low
+            # Always use the last value if possible, else fallback to 0.0
+            try:
+                trend_val = float(trend_strength_series.iloc[-1])
+            except Exception:
+                trend_val = 0.0
+        else:
+            trend_val = 0.0
+
         # Current values
-        current_vol = vol_20.iloc[-1] if not vol_20.empty else 0.2
-        vol_percentile = min(1.0, max(0.0, (current_vol - vol_20.quantile(0.1)) / 
-                                      (vol_20.quantile(0.9) - vol_20.quantile(0.1))))
-        
+        current_vol = float(vol_20.iloc[-1]) if not vol_20.empty else 0.2
+        vol_percentile = min(1.0, max(0.0, (current_vol - vol_20.quantile(0.1)) /
+                                      (vol_20.quantile(0.9) - vol_20.quantile(0.1)) if (vol_20.quantile(0.9) - vol_20.quantile(0.1)) != 0 else 0.5))
+
         volume_percentile = min(1.0, max(0.0, volume_current / volume_ma.iloc[-1] - 0.5)) if volume_ma.iloc[-1] > 0 else 0.5
-        
-        trend_val = trend_strength.iloc[-1] if not trend_strength.empty else 0
-        
+
         # Regime classification
         if current_vol > vol_20.quantile(0.8):
             regime = MarketRegime.VOLATILE
         elif trend_val > 0.7:
-            regime = MarketRegime.TRENDING  
+            regime = MarketRegime.TRENDING
         elif volume_percentile < 0.3:
             regime = MarketRegime.LOW_VOLUME
         else:
             regime = MarketRegime.RANGING
-            
+
         return MarketContext(
             regime=regime,
             volatility_percentile=vol_percentile,
-            volume_percentile=volume_percentile, 
+            volume_percentile=volume_percentile,
             trend_strength=trend_val,
             timestamp=datetime.now()
         )
 
-# Usage Example
-if __name__ == "__main__":
-    
-    # Initialize the Bayesian Oracle
-    oracle = MirrorCoreBayesianOracle()
-    
-    # Register some trading strategies
-    strategies = [
-        "MACD_Crossover", 
-        "RSI_Divergence", 
-        "Volume_Breakout", 
-        "Trend_Following",
-        "Mean_Reversion"
-    ]
-    
-    for strategy in strategies:
-        oracle.register_strategy_component(strategy, "strategy")
-    
-    # Simulate some market data and strategy performance
-    np.random.seed(42)
-    dates = pd.date_range('2024-01-01', periods=100, freq='D')
-    
-    # Create synthetic market data
-    price_base = 100
-    prices = [price_base]
-    volumes = []
-    
-    for i in range(99):
-        # Random walk with some trending behavior
-        change = np.random.normal(0, 0.02) + 0.001 * (i % 20 - 10) / 10
-        prices.append(prices[-1] * (1 + change))
-        volumes.append(np.random.lognormal(10, 0.5))
-    
-    market_data = pd.DataFrame({
-        'date': dates,
-        'close': prices,
-        'high': [p * (1 + abs(np.random.normal(0, 0.01))) for p in prices],
-        'low': [p * (1 - abs(np.random.normal(0, 0.01))) for p in prices],
-        'volume': volumes + [np.random.lognormal(10, 0.5)]  # Match length
-    })
-    
-    # Simulate strategy performance over time
-    for i in range(20, len(market_data)):
-        current_data = market_data.iloc[:i]
-        
-        # Simulate different strategy success rates based on market conditions
-        regime_context = oracle.market_regime_detector.detect_regime(current_data)
-        
-        for strategy in strategies:
-            # Different strategies perform better in different regimes
-            base_prob = {
-                "MACD_Crossover": {MarketRegime.TRENDING: 0.7, MarketRegime.RANGING: 0.4, 
-                                 MarketRegime.VOLATILE: 0.3, MarketRegime.LOW_VOLUME: 0.5},
-                "RSI_Divergence": {MarketRegime.TRENDING: 0.8, MarketRegime.RANGING: 0.6,
-                                 MarketRegime.VOLATILE: 0.4, MarketRegime.LOW_VOLUME: 0.5},
-                "Volume_Breakout": {MarketRegime.TRENDING: 0.6, MarketRegime.RANGING: 0.3,
-                                  MarketRegime.VOLATILE: 0.7, MarketRegime.LOW_VOLUME: 0.2},
-                "Trend_Following": {MarketRegime.TRENDING: 0.8, MarketRegime.RANGING: 0.3,
-                                  MarketRegime.VOLATILE: 0.5, MarketRegime.LOW_VOLUME: 0.4},
-                "Mean_Reversion": {MarketRegime.TRENDING: 0.3, MarketRegime.RANGING: 0.7,
-                                 MarketRegime.VOLATILE: 0.6, MarketRegime.LOW_VOLUME: 0.5}
-            }
-            
-            success_prob = base_prob[strategy][regime_context.regime]
-            success = np.random.random() < success_prob
-            
-            oracle.update_strategy_performance(strategy, success, current_data)
-    
-    # Get final recommendations
-    final_recommendations = oracle.get_strategy_recommendation(market_data)
-    
-    print("=== MirrorCore Bayesian Oracle Recommendations ===\n")
-    print(f"Market Context: {final_recommendations['market_context']}\n")
-    
-    print("Top Strategy Recommendations:")
-    for i, strategy in enumerate(final_recommendations['top_strategies'], 1):
-        ci_low, ci_high = strategy['confidence_interval']
-        print(f"{i}. {strategy['name']}")
-        print(f"   Success Probability: {strategy['probability']:.3f}")
-        print(f"   95% Confidence Interval: [{ci_low:.3f}, {ci_high:.3f}]")
-        print(f"   Uncertainty: {strategy['uncertainty']:.3f}")
-        print(f"   Sample Size: {strategy['sample_size']:.1f}")
-        print()
-    
-    # Export beliefs summary
-    beliefs_df = oracle.export_beliefs_summary()
-    print("Detailed Beliefs Summary:")
-    print(beliefs_df.round(3))
+
+# --- BayesianOracleEnhancement: Advanced Wrapper for MirrorCoreBayesianOracle ---
+class BayesianOracleEnhancement:
+    """
+    Enhancement layer for MirrorCoreBayesianOracle, providing advanced explainability,
+    integration hooks, and meta-analytics for ensemble trading systems.
+    """
+    def __init__(self, base_oracle: Optional[MirrorCoreBayesianOracle] = None):
+        if base_oracle is None:
+            base_oracle = MirrorCoreBayesianOracle()
+        self.base_oracle = base_oracle
+        self.last_recommendations = None
+        self.meta_log = []
+
+    def update_strategy_performance(self, strategy_name: str, success: bool, market_data: pd.DataFrame, confidence: float = 1.0):
+        """Proxy to base oracle, with meta-logging."""
+        self.base_oracle.update_strategy_performance(strategy_name, success, market_data, confidence)
+        self.meta_log.append({
+            'event': 'update_strategy_performance',
+            'strategy': strategy_name,
+            'success': success,
+            'confidence': confidence,
+            'timestamp': datetime.now()
+        })
+
+    def get_strategy_recommendation(self, market_data: pd.DataFrame) -> Dict:
+        """Proxy to base oracle, with explainability augmentation."""
+        rec = self.base_oracle.get_strategy_recommendation(market_data)
+        self.last_recommendations = rec
+        # Add explainability: why top strategies were chosen
+        for strat in rec.get('top_strategies', []):
+            strat['explanation'] = self._explain_strategy(strat)
+        return rec
+
+    def _explain_strategy(self, strat: Dict) -> str:
+        """Generate a human-readable explanation for a strategy's ranking."""
+        prob = strat.get('probability', 0)
+        unc = strat.get('uncertainty', 0)
+        ci = strat.get('confidence_interval', [0, 1])
+        sample = strat.get('sample_size', 0)
+        if prob > 0.7 and unc < 0.1:
+            return f"High confidence: strong historical performance in this regime (p={prob:.2f}, n={sample:.0f})."
+        elif prob > 0.5:
+            return f"Moderate confidence: above-average success, but some uncertainty remains (p={prob:.2f}, 95% CI=[{ci[0]:.2f}, {ci[1]:.2f}])."
+        else:
+            return f"Low confidence: limited or mixed evidence (p={prob:.2f}, n={sample:.0f})."
+
+    def rank_strategies(self, market_data: pd.DataFrame) -> List[Tuple[str, float, float]]:
+        return self.base_oracle.rank_strategies(market_data)
+
+    def export_beliefs_summary(self) -> pd.DataFrame:
+        return self.base_oracle.export_beliefs_summary()
+
+    def adapt_to_regime_change(self, old_regime: MarketRegime, new_regime: MarketRegime):
+        self.base_oracle.adapt_to_regime_change(old_regime, new_regime)
+        self.meta_log.append({
+            'event': 'regime_change',
+            'from': old_regime.value,
+            'to': new_regime.value,
+            'timestamp': datetime.now()
+        })
+
+    def get_last_recommendations(self) -> Optional[Dict]:
+        return self.last_recommendations
+
+    def get_meta_log(self) -> List[Dict]:
+        return self.meta_log
+
+# --- EnhancedTradingOracleEngine: Integrates Bayesian Oracle with Trading System ---
+
+# --- EnhancedTradingOracleEngine: Integrates Bayesian Oracle with Trading System ---
+class EnhancedTradingOracleEngine:
+    """
+    Integrates BayesianOracleEnhancement with a trading system, providing advanced
+    directive generation, explainability, and meta-analytics for ensemble trading.
+    """
+    def __init__(self, bayesian_oracle: Optional["BayesianOracleEnhancement"] = None):
+        if bayesian_oracle is None:
+            bayesian_oracle = BayesianOracleEnhancement()
+        self.bayesian_oracle = bayesian_oracle
+        self.last_directives = []
+        self.explainability_log = []
+
+    def generate_trading_directives(self, market_data: "pd.DataFrame", strategies: Optional[List[str]] = None) -> List[Dict]:
+        """
+        Generate trading directives based on Bayesian recommendations and explainability.
+        """
+        rec = self.bayesian_oracle.get_strategy_recommendation(market_data)
+        directives = []
+        for strat in rec.get('top_strategies', []):
+            if strategies is None or strat['name'] in strategies:
+                action = self._map_probability_to_action(strat['probability'])
+                directive = {
+                    'strategy': strat['name'],
+                    'action': action,
+                    'probability': strat['probability'],
+                    'confidence_interval': strat['confidence_interval'],
+                    'uncertainty': strat['uncertainty'],
+                    'explanation': strat.get('explanation', ''),
+                }
+                directives.append(directive)
+                self.explainability_log.append({
+                    'strategy': strat['name'],
+                    'action': action,
+                    'meta': strat
+                })
+        self.last_directives = directives
+        return directives
+
+    def _map_probability_to_action(self, prob: float) -> str:
+        if prob > 0.7:
+            return 'Strong Buy'
+        elif prob > 0.55:
+            return 'Buy'
+        elif prob > 0.45:
+            return 'Hold'
+        elif prob > 0.3:
+            return 'Sell'
+        else:
+            return 'Strong Sell'
+
+    def get_last_directives(self) -> List[Dict]:
+        return self.last_directives
+
+    def get_explainability_log(self) -> List[Dict]:
+        return self.explainability_log
+
+# --- BayesianStrategyTrainerEnhancement: Adapter for Bayesian Belief-Driven Training ---
+class BayesianStrategyTrainerEnhancement:
+    """
+    Adapter/enhancer for strategy trainers, using Bayesian beliefs to dynamically
+    adjust strategy weights, provide regime-aware training, and explainability.
+    """
+    def __init__(self, bayesian_oracle: Optional["BayesianOracleEnhancement"] = None):
+        if bayesian_oracle is None:
+            bayesian_oracle = BayesianOracleEnhancement()
+        self.bayesian_oracle = bayesian_oracle
+        self.strategy_weights = {}
+        self.last_market_context = None
+        self.explainability = {}
+
+    def update_weights(self, market_data: "pd.DataFrame"):
+        """
+        Update strategy weights based on Bayesian beliefs and current market context.
+        """
+        rec = self.bayesian_oracle.get_strategy_recommendation(market_data)
+        self.last_market_context = rec.get('market_context', {})
+        weights = {}
+        explain = {}
+        for strat in rec.get('top_strategies', []):
+            name = strat['name']
+            prob = strat['probability']
+            # Map probability to weight (0.0-1.0)
+            weight = min(max((prob - 0.3) / 0.7, 0.0), 1.0)
+            weights[name] = weight
+            explain[name] = strat.get('explanation', '')
+        self.strategy_weights = weights
+        self.explainability = explain
+        return weights
+
+    def get_weights(self) -> Dict[str, float]:
+        return self.strategy_weights
+
+    def get_explainability(self) -> Dict[str, str]:
+        return self.explainability
+
+    def get_last_market_context(self) -> Optional[Dict]:
+        return self.last_market_context

@@ -43,7 +43,7 @@ from typing import Dict, Any, Optional, List, Union, Tuple
 from collections import defaultdict
 from pydantic import BaseModel, Field
 from bayes_opt import BayesianOptimization
-import gym
+import gymnasium as gym
 from gym import spaces
 from sklearn.preprocessing import RobustScaler, MinMaxScaler
 from datetime import datetime, timezone

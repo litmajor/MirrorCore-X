@@ -1,3 +1,4 @@
+
 from bayes_opt import BayesianOptimization
 from typing import Dict, Callable, Optional, Any
 import numpy as np
@@ -198,68 +199,6 @@ class MirrorOptimizerAgent:
         logger.info(f"Results loaded from {filename}")
 
 
-class ScannerAgent(OptimizableAgent):
-    """Example scanner agent with hyperparameter optimization."""
-    
-    def __init__(self):
-        """Initialize with default parameters."""
-        self.lookback_window = 50
-        self.rsi_threshold = 30
-        self.volume_multiplier = 2.5
-        
-    def get_hyperparameters(self) -> Dict[str, Any]:
-        """Return current hyperparameters."""
-        return {
-            "lookback_window": self.lookback_window,
-            "rsi_threshold": self.rsi_threshold,
-            "volume_multiplier": self.volume_multiplier
-        }
-    
-    def set_hyperparameters(self, params: Dict[str, Any]) -> None:
-        """Set hyperparameters from dictionary."""
-        self.lookback_window = int(params.get("lookback_window", self.lookback_window))
-        self.rsi_threshold = float(params.get("rsi_threshold", self.rsi_threshold))
-        self.volume_multiplier = float(params.get("volume_multiplier", self.volume_multiplier))
-    
-    def validate_params(self, params: Dict[str, Any]) -> bool:
-        """Validate parameter ranges."""
-        lookback = params.get("lookback_window", self.lookback_window)
-        rsi = params.get("rsi_threshold", self.rsi_threshold)
-        volume = params.get("volume_multiplier", self.volume_multiplier)
-        
-        return (20 <= lookback <= 200 and 
-                10 <= rsi <= 80 and 
-                0.5 <= volume <= 10.0)
-    
-    def evaluate(self) -> float:
-        """
-        Evaluate scanner performance.
-        Replace this with actual backtesting logic.
-        """
-        return self.simulate_scanner_performance()
-    
-    def simulate_scanner_performance(self) -> float:
-        """
-        Mock evaluation function - replace with real backtesting.
-        
-        This function simulates a performance metric where:
-        - Optimal lookback_window is around 60
-        - Optimal rsi_threshold is around 35
-        - Optimal volume_multiplier is around 3.0
-        """
-        params = self.get_hyperparameters()
-        
-        # Simulate performance with some noise
-        base_score = 100
-        lookback_penalty = abs(params["lookback_window"] - 60) * 0.5
-        rsi_penalty = abs(params["rsi_threshold"] - 35) * 1.0
-        volume_penalty = abs(params["volume_multiplier"] - 3.0) * 5.0
-        
-        # Add some noise to make optimization more realistic
-        noise = np.random.normal(0, 2)
-        
-        score = base_score - lookback_penalty - rsi_penalty - volume_penalty + noise
-        return max(0, score)
 
 
 class OracleAgent(OptimizableAgent):
@@ -306,75 +245,35 @@ class OracleAgent(OptimizableAgent):
 
 
 # Usage example
+# Usage example
+
 if __name__ == "__main__":
-    # Define parameter bounds
-    scanner_bounds = {
-        "lookback_window": (55, 65),
-        "rsi_threshold": (36, 40),
-        "volume_multiplier": (0.5, 1.5)
-    }
-    
-    oracle_bounds = {
-        "prediction_window": (1, 15),
-        "confidence_threshold": (0.3, 0.9),
-        "model_complexity": (5, 30)
-    }
-    
-    # Create agents
-    agents = {
-        "scanner": ScannerAgent(),
-        "oracle": OracleAgent()
-    }
-    
-    # Create optimizer
+    # Fully wired: Optimize MomentumScanner with real data
+    import ccxt.pro as ccxt_async
+    from scanner import MomentumScanner, get_dynamic_config
+    import asyncio
+
+    # Initialize exchange (choose your preferred exchange)
+    exchange = ccxt_async.binance({
+        'enableRateLimit': True,
+        'rateLimit': 100,
+        'timeout': 30000,
+    })
+
+    # Load config using the dynamic loader
+    config = get_dynamic_config(market_type='crypto')
+
+    # Initialize scanner
+    scanner = MomentumScanner(exchange, config=config, market_type='crypto', quote_currency='USDT', min_volume_usd=1_000_000, top_n=30)
+    agents = {"scanner": scanner}
     optimizer = MirrorOptimizerAgent(agents)
-    
-    # Optimize individual agent
-    print("=== Optimizing Scanner Agent ===")
-    # Use more iterations and init_points for finer search
-    best_scanner_params = optimizer.optimize_agent("scanner", scanner_bounds, iterations=60, init_points=12)
-    print(f"Best scanner params: {best_scanner_params}")
 
-    print("\n=== Optimizing Oracle Agent ===")
-    best_oracle_params = optimizer.optimize_agent("oracle", oracle_bounds, iterations=60, init_points=12)
-    print(f"Best oracle params: {best_oracle_params}")
-    
-    # Or optimize all agents at once
-    print("\n=== Optimizing All Agents ===")
-    all_bounds = {
-        "scanner": scanner_bounds,
-        "oracle": oracle_bounds
+    bounds = {
+        "momentum_period": (5, 50),
+        "rsi_window": (5, 50),
+        "volume_threshold": (0.5, 10.0)
     }
-    
-    all_results = optimizer.optimize_all_agents(all_bounds, iterations=30)
-    print(f"All optimization results: {all_results}")
 
-    # Save results
-    optimizer.save_results("optimization_results.json")
-
-    # Immediately deploy the best found scanner parameters as defaults for next run
-    # (This is a soft deploy; the config loader will pick up from optimization_results.json)
-    deployed_params = {
-        "lookback_window": 61.03,
-        "rsi_threshold": 38.37,
-        "volume_multiplier": 1.0
-    }
-    print(f"Deployed scanner parameters for next run: {deployed_params}")
-    
-    # Print optimization history
-    print("\n=== Optimization History ===")
-    history = optimizer.get_optimization_history()
-    for agent_name, data in history.items():
-        # Work around missing or malformed data
-        best_score = data.get('best_score', None)
-        best_params = data.get('best_params', None)
-        original_params = data.get('original_params', None)
-        try:
-            if best_score is not None:
-                print(f"{agent_name}: Best score = {best_score:.4f}")
-            else:
-                print(f"{agent_name}: Best score = N/A")
-        except Exception:
-            print(f"{agent_name}: Best score = N/A")
-        print(f"  Best params: {best_params if best_params is not None else 'N/A'}")
-        print(f"  Original params: {original_params if original_params is not None else 'N/A'}")
+    print("=== Optimizing MomentumScanner with real backtest ===")
+    best_params = optimizer.optimize_agent("scanner", bounds, iterations=60, init_points=12)
+    print(f"Best scanner params: {best_params}")

@@ -28,14 +28,14 @@ class RLConfig:
     """Configuration for RL trading agent"""
     lookback_window: int = 20
     max_position_size: float = 1.0
-    transaction_cost: float = 0.001
+    transaction_cost: float = 0.003  # tuned for more trades
     slippage: float = 0.0005
-    reward_scaling: float = 1.0
+    reward_scaling: float = 3.0  # tuned for stable gradients
     risk_penalty: float = 0.1
     drawdown_penalty: float = 0.2
     sharpe_reward_weight: float = 0.3
     return_reward_weight: float = 0.7
-    learning_rate: float = 3e-4
+    learning_rate: float = 3e-4  # tuned for stability
     total_timesteps: int = 100000
     eval_freq: int = 5000
     save_freq: int = 10000
@@ -102,23 +102,25 @@ class SignalEncoder:
 
 class TradingEnvironment(gym.Env):
     """Enhanced trading environment for RL training"""
-    
+    def _pad_or_crop(self, raw: np.ndarray) -> np.ndarray:
+        # Deprecated: use make_fixed_observation instead
+        return make_fixed_observation(pd.DataFrame(raw), lookback=self.lookback, n_features=21)
     def __init__(self, 
                  market_data: np.ndarray,
                  price_data: np.ndarray,
                  config: Optional[RLConfig] = None,
                  initial_balance: float = 10000.0):
         super().__init__()
-        
+
         self.config = config or RLConfig()
         self.market_data = market_data
         self.price_data = price_data
         self.initial_balance = initial_balance
-        
+
         # Environment parameters
-        self.lookback = self.config.lookback_window
+        self.lookback = 20  # Pin lookback to 20 for safety
         self.max_steps = len(market_data) - self.lookback - 1
-        
+
         # Action space: [position_change] where position_change ∈ [-1, 1]
         # -1 = max short, 0 = neutral, 1 = max long
         self.action_space = spaces.Box(
@@ -127,21 +129,19 @@ class TradingEnvironment(gym.Env):
             shape=(1,), 
             dtype=np.float32
         )
-        
+
         # Observation space: market features + portfolio state
-        n_features = market_data.shape[1]
-        portfolio_features = 4  # position, balance, pnl, drawdown
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(self.lookback, n_features + portfolio_features),
+            shape=(20, 21),  # match model
             dtype=np.float32
         )
-        
+
         # Initialize state
         self.reset()
     
-    def reset(self, seed=None, options=None):
+    def reset(self, *args, seed=None, options=None, **kwargs):
         """Reset environment to initial state"""
         super().reset(seed=seed)
         
@@ -160,49 +160,59 @@ class TradingEnvironment(gym.Env):
         self.action_history = []
         self.reward_history = []
         
-        return self._get_observation(), {}
+        obs = self._get_observation()
+        assert obs.shape == self.observation_space.shape, f"reset: obs.shape {obs.shape} != {self.observation_space.shape}"
+        return obs, {}
     
     def step(self, action: np.ndarray):
         """Execute one step in the environment"""
         if self.current_step >= self.max_steps:
-            return self._get_observation(), 0.0, True, False, {}
-        
+            obs = self._get_observation()
+            assert obs.shape == self.observation_space.shape, f"step: obs.shape {obs.shape} != {self.observation_space.shape}"
+            return obs, 0.0, True, False, {}
+
         # Parse action
         target_position = np.clip(action[0], -1.0, 1.0)
         position_change = target_position - self.position
-        
+
         # Calculate current price
         current_price = self.price_data[self.current_step]
-        
+
         # Execute trade if position changes
         reward = 0.0
         if abs(position_change) > 0.01:  # Minimum trade threshold
             reward += self._execute_trade(position_change, current_price)
-        
+
         # Calculate unrealized PnL
         if self.position != 0:
             price_change = (current_price - self.entry_price) / self.entry_price
             unrealized_pnl = self.position * price_change * self.balance
             self.total_pnl = unrealized_pnl
-        
+
         # Update balance
         self.balance = self.initial_balance + self.total_pnl
         self.max_balance = max(self.max_balance, self.balance)
-        
+
         # Calculate reward components
         reward += self._calculate_reward(current_price)
-        
+
+        # Clip reward to prevent NaNs
+        reward = float(np.clip(reward, -10.0, 10.0))
+
         # Update state
         self.current_step += 1
         self.balance_history.append(self.balance)
         self.position_history.append(self.position)
         self.action_history.append(target_position)
         self.reward_history.append(reward)
-        
+
+        obs = self._get_observation()
+        assert obs.shape == self.observation_space.shape, f"step: obs.shape {obs.shape} != {self.observation_space.shape}"
+
         # Check if done
         done = (self.current_step >= self.max_steps or 
                 self.balance <= self.initial_balance * 0.5)  # 50% drawdown limit
-        
+
         info = {
             'balance': self.balance,
             'position': self.position,
@@ -211,8 +221,8 @@ class TradingEnvironment(gym.Env):
             'win_rate': self.win_count / max(self.trade_count, 1),
             'drawdown': (self.max_balance - self.balance) / self.max_balance
         }
-        
-        return self._get_observation(), reward, done, False, info
+
+        return obs, reward, done, False, info
     
     def _execute_trade(self, position_change: float, current_price: float) -> float:
         """Execute trade and return immediate reward/penalty"""
@@ -247,40 +257,41 @@ class TradingEnvironment(gym.Env):
         return -trade_cost / self.initial_balance  # Normalize cost
     
     def _calculate_reward(self, current_price: float) -> float:
-        """Calculate step reward based on multiple factors"""
-        reward = 0.0
-        
-        # Return-based reward
+        """PnL-based reward: stepwise profit/loss normalized by initial balance, plus risk/drawdown penalties."""
+        # Stepwise PnL (change in balance)
         if len(self.balance_history) > 1:
-            balance_return = (self.balance - self.balance_history[-2]) / self.balance_history[-2]
-            reward += balance_return * self.config.return_reward_weight
-        
-        # Risk-adjusted reward (Sharpe-like)
-        if len(self.balance_history) > 10:
-            returns = np.diff(self.balance_history[-10:]) / np.array(self.balance_history[-11:-1])
-            if len(returns) > 1 and np.std(returns) > 0:
-                sharpe_approx = np.mean(returns) / np.std(returns)
-                reward += sharpe_approx * self.config.sharpe_reward_weight
-        
+            step_pnl = self.balance - self.balance_history[-2]
+        else:
+            step_pnl = 0.0
+        reward = step_pnl / self.initial_balance
+
         # Drawdown penalty
         drawdown = (self.max_balance - self.balance) / self.max_balance
-        if drawdown > 0.1:  # Penalty for >10% drawdown
+        if drawdown > 0.1:
             reward -= drawdown * self.config.drawdown_penalty
-        
+
         # Risk penalty for extreme positions
         risk_penalty = abs(self.position) ** 2 * self.config.risk_penalty
         reward -= risk_penalty
-        
+
         return float(reward * self.config.reward_scaling)
     
     def _get_observation(self) -> np.ndarray:
-        """Get current observation"""
+        """Get current observation with guaranteed static shape (20, 21) and correct feature axis. Also normalize to prevent NaNs."""
         # Market features for lookback window
         start_idx = max(0, self.current_step - self.lookback)
         end_idx = self.current_step
-        
+        # Always use only the first 17 columns (features) if more are present
         market_features = self.market_data[start_idx:end_idx]
-        
+        if market_features.ndim == 1:
+            market_features = market_features.reshape(-1, 1)
+        elif market_features.shape[1] > 17:
+            market_features = market_features[:, :17]
+        elif market_features.shape[1] < 17:
+            # Pad columns if fewer than 17
+            pad_width = 17 - market_features.shape[1]
+            market_features = np.pad(market_features, ((0,0),(0,pad_width)), 'constant')
+
         # Portfolio features
         portfolio_state = np.array([
             [self.position, 
@@ -288,19 +299,16 @@ class TradingEnvironment(gym.Env):
              self.total_pnl / self.initial_balance,    # Normalized PnL
              (self.max_balance - self.balance) / self.max_balance]  # Drawdown
         ])
-        
-        # Repeat portfolio state for each timestep in lookback
         portfolio_features = np.repeat(portfolio_state, self.lookback, axis=0)
-        
-        # Pad market features if needed
-        if market_features.shape[0] < self.lookback:
-            padding = np.zeros((self.lookback - market_features.shape[0], market_features.shape[1]))
-            market_features = np.vstack([padding, market_features])
-        
+
         # Combine features
-        observation = np.concatenate([market_features, portfolio_features], axis=1)
-        
-        return observation.astype(np.float32)
+        raw_features = np.concatenate([market_features, portfolio_features], axis=1)
+        obs = make_fixed_observation(pd.DataFrame(raw_features), lookback=20, n_features=21)
+        # Normalize observation to prevent NaNs
+        obs = (obs - np.nanmean(obs)) / (np.nanstd(obs) + 1e-8)
+        obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
+        assert obs.shape == (20, 21), f"Observation shape drift: got {obs.shape}, expected (20, 21)"
+        return obs
     
     def render(self, mode='human'):
         """Render environment state"""
@@ -308,8 +316,15 @@ class TradingEnvironment(gym.Env):
             print(f"Step: {self.current_step}, Balance: ${self.balance:.2f}, "
                   f"Position: {self.position:.2f}, PnL: ${self.total_pnl:.2f}")
 
-class RLTradingAgent:
+class RLTradingAgent(object):
     """Main RL trading agent class"""
+    @staticmethod
+    def pad_or_crop_obs(arr: np.ndarray, rows: int = 20, cols: int = 21) -> np.ndarray:
+        buf = np.zeros((rows, cols), dtype=np.float32)
+        n_rows = min(arr.shape[0], rows)
+        n_cols = min(arr.shape[1], cols)
+        buf[:n_rows, :n_cols] = arr[:n_rows, :n_cols]
+        return buf
     
     def __init__(self, 
                  algorithm: str = 'PPO',
@@ -325,22 +340,22 @@ class RLTradingAgent:
         if model_path:
             self.load_model(model_path)
     
-    def prepare_training_data(self, scanner_results: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare training data from scanner results"""
+    def prepare_training_data(self, scanner_results: pd.DataFrame) -> tuple:
+        """Prepare training data from scanner results, always outputting (20, 21) for market_features."""
         # Add market sentiment features if available
         if hasattr(scanner_results, 'fear_greed_history') and hasattr(scanner_results.fear_greed_history, '__len__') and len(scanner_results.fear_greed_history) > 0:
             scanner_results['fear_greed'] = scanner_results.fear_greed_history[-1]
         else:
             scanner_results['fear_greed'] = 50
-            
+
         if hasattr(scanner_results, 'btc_dominance_history') and hasattr(scanner_results.btc_dominance_history, '__len__') and len(scanner_results.btc_dominance_history) > 0:
             scanner_results['btc_dominance'] = scanner_results.btc_dominance_history[-1]
         else:
             scanner_results['btc_dominance'] = 50
-        
+
         # Calculate volatility
         scanner_results['volatility'] = scanner_results['momentum_short'].rolling(5).std().fillna(0)
-        
+
         # Add technical indicators as boolean features
         if 'ichimoku_bullish' in scanner_results.columns:
             scanner_results['ichimoku_bullish'] = scanner_results['ichimoku_bullish'].astype(float)
@@ -351,11 +366,15 @@ class RLTradingAgent:
         else:
             scanner_results['vwap_bullish'] = 0.0
         scanner_results['ema_crossover'] = np.array(scanner_results.get('ema_5_13_bullish', False), dtype=float)
-        
+
         # Encode features
         market_features = self.encoder.encode(scanner_results)
+        market_features_df = pd.DataFrame(market_features)
+        market_features = make_fixed_observation(market_features_df, lookback=20, n_features=21)
+        assert market_features.shape == (20, 21), f"Feature shape drift: got {market_features.shape}, expected (20, 21)"
         price_data = np.array(scanner_results['price'].values, dtype=np.float32)
-        
+        price_data = price_data[:20] if price_data.shape[0] > 20 else np.pad(price_data, (0, max(0, 20 - price_data.shape[0])), 'constant')
+
         return market_features, price_data
     
     def create_environment(self, market_data: np.ndarray, price_data: np.ndarray) -> TradingEnvironment:
@@ -432,19 +451,19 @@ class RLTradingAgent:
             save_freq=self.config.save_freq,
             save_path=save_path
         )
-        
+
         # Train model
         self.model.learn(
             total_timesteps=self.config.total_timesteps,
             callback=callback
         )
-        
+
         # Save final model
         self.save_model(save_path)
         self.is_trained = True
-        
+
         logger.info("RL training completed")
-        
+
         return {
             'training_completed': True,
             'total_timesteps': self.config.total_timesteps,
@@ -456,9 +475,8 @@ class RLTradingAgent:
         """Predict action for given observation"""
         if not self.is_trained or self.model is None:
             raise ValueError("Model must be trained before making predictions")
-        
-        action, state = self.model.predict(observation, deterministic=deterministic)
-        return action, state
+        action, _ = self.model.predict(observation, deterministic=deterministic)
+        return action, None
     
     def evaluate(self, 
                  test_data: pd.DataFrame,
@@ -475,19 +493,20 @@ class RLTradingAgent:
         win_rates = []
         
         for episode in range(episodes):
-            obs, _ = env.reset()
+            obs, info = env.reset(seed=episode)
             total_reward = 0.0
-            done = False
-            info = {}  # Ensure info is always defined
-            
-            while not done:
+            terminated = False
+            truncated = False
+            last_info = {}
+
+            while not (terminated or truncated):
                 action, _ = self.predict(obs, deterministic=True)
-                obs, reward, done, _, info = env.step(action)
-                total_reward += reward
-            
+                obs, reward, terminated, truncated, info = env.step(action)
+                last_info = info
+
             episode_rewards.append(total_reward)
-            episode_returns.append((info.get('balance', env.initial_balance) - env.initial_balance) / env.initial_balance)
-            win_rates.append(info.get('win_rate', 0.0))
+            episode_returns.append((last_info.get('balance', env.initial_balance) - env.initial_balance) / env.initial_balance)
+            win_rates.append(last_info.get('win_rate', 0.0))
         
         return {
             'mean_reward': float(np.mean(episode_rewards)),
@@ -666,24 +685,20 @@ class IntegratedTradingSystem:
         self.meta_controller = meta_controller
         self.trading_history = []
     
-    async def generate_signals(self, timeframe: str = 'daily') -> pd.DataFrame:
-        """Generate trading signals using both rule-based and RL approaches"""
-        # Get scanner results
-        scanner_results = await self.scanner.scan_market(timeframe=timeframe)
-        
+    async def generate_signals(self, timeframe: str = 'daily', scanner_results: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+        """Generate trading signals using both rule-based and RL approaches. If scanner_results is provided, use it; otherwise, scan."""
+        # Use provided scanner_results or scan
+        if scanner_results is None:
+            scanner_results = await self.scanner.scan_market(timeframe=timeframe)
         if scanner_results.empty:
             logger.warning("No scanner results available")
             return pd.DataFrame()
-        
         # Prepare signals DataFrame
         signals_df = scanner_results.copy()
-        
         # Add RL predictions if agent is trained
         if self.rl_agent.is_trained:
             rl_positions = []
-            
-            for _, row in scanner_results.iterrows():
-                # Prepare observation for RL agent
+            for _, row in signals_df.iterrows():
                 observation_data = {
                     'price': row['price'],
                     'volume': row.get('volume_usd', 0),
@@ -696,25 +711,21 @@ class IntegratedTradingSystem:
                     'composite_score': row['composite_score'],
                     'trend_score': row['trend_score'],
                     'confidence_score': row['confidence_score'],
-                    'fear_greed': 50,  # Default if not available
-                    'btc_dominance': 50,  # Default if not available
+                    'fear_greed': 50,
+                    'btc_dominance': 50,
                     'volatility': row.get('volatility', 0),
                     'ichimoku_bullish': float(row.get('ichimoku_bullish', False)),
                     'vwap_bullish': float(row.get('vwap_bullish', False)),
                     'ema_crossover': float(row.get('ema_5_13_bullish', False))
                 }
-                
-                # Get RL prediction
                 obs = self.rl_agent.encoder.transform_live(observation_data)
-                # Create dummy observation with lookback dimension
-                dummy_obs = np.repeat(obs, self.rl_agent.config.lookback_window, axis=0)
+                lookback = int(self.rl_agent.config.lookback_window)
+                dummy_obs = np.repeat(obs, lookback, axis=0)
                 rl_action, _ = self.rl_agent.predict(dummy_obs)
                 rl_positions.append(float(rl_action[0]))
-            
             signals_df['rl_position'] = rl_positions
         else:
             signals_df['rl_position'] = 0.0
-        
         # Generate meta-controller decisions
         meta_decisions = []
         for _, row in signals_df.iterrows():
@@ -725,11 +736,8 @@ class IntegratedTradingSystem:
                 market_regime=self._detect_market_regime(row)
             )
             meta_decisions.append(decision)
-        
-        # Add meta-controller results
         meta_df = pd.DataFrame(meta_decisions)
         signals_df = pd.concat([signals_df, meta_df], axis=1)
-        
         return signals_df
     
     def _detect_market_regime(self, row: pd.Series) -> str:
@@ -746,20 +754,17 @@ class IntegratedTradingSystem:
     
     async def execute_trading_session(self, 
                                     timeframe: str = 'daily',
-                                    dry_run: bool = True) -> Dict[str, Any]:
-        """Execute a complete trading session"""
+                                    dry_run: bool = True,
+                                    scanner_results: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        """Execute a complete trading session. If scanner_results is provided, use it; otherwise, scan."""
         logger.info(f"Starting integrated trading session - timeframe: {timeframe}, dry_run: {dry_run}")
-        
         try:
             # Generate signals
-            signals = await self.generate_signals(timeframe)
-            
+            signals = await self.generate_signals(timeframe, scanner_results=scanner_results)
             if signals.empty:
                 return {'status': 'no_signals', 'trades': []}
-            
             # Filter for actionable signals
             actionable = signals[abs(signals['final_position']) > 0.1]  # Minimum 10% position
-            
             trades = []
             for _, signal in actionable.iterrows():
                 trade = {
@@ -775,16 +780,12 @@ class IntegratedTradingSystem:
                     'timestamp': datetime.now(timezone.utc),
                     'dry_run': dry_run
                 }
-                
                 if not dry_run:
-                    # Execute actual trade (implement exchange integration here)
                     trade['executed'] = await self._execute_real_trade(trade)
                 else:
                     trade['executed'] = True  # Simulate successful execution
-                
                 trades.append(trade)
                 self.trading_history.append(trade)
-            
             session_result = {
                 'status': 'completed',
                 'timeframe': timeframe,
@@ -795,10 +796,8 @@ class IntegratedTradingSystem:
                 'dry_run': dry_run,
                 'session_timestamp': datetime.now(timezone.utc)
             }
-            
             logger.info(f"Trading session completed: {session_result['trades_executed']} trades executed")
             return session_result
-            
         except Exception as e:
             logger.error(f"Trading session failed: {e}")
             return {'status': 'error', 'error': str(e)}
@@ -855,58 +854,75 @@ class RLTrainingPipeline:
     async def run_full_pipeline(self, 
                                training_timeframe: str = 'daily',
                                algorithm: str = 'PPO',
-                               total_timesteps: int = 100000) -> Dict[str, Any]:
-        """Run the complete training and deployment pipeline"""
-        
-        # Step 1: Collect training data
-        logger.info("Step 1: Collecting training data...")
-        training_data = await self._collect_training_data(training_timeframe)
-        
-        if training_data.empty:
+                               total_timesteps: int = 100000,
+                               n_opt_trials: int = 10) -> Dict[str, Any]:
+        """Run the complete training and deployment pipeline, now with hyperparameter optimization as a main step."""
+
+        # Step 1: Collect data ONCE
+        logger.info("Step 1: Collecting market data (single scan)...")
+        full_data = await self.scanner.scan_market(timeframe=training_timeframe, full_analysis=True)
+        if full_data.empty:
             raise ValueError("No training data available")
-        
-        # Step 2: Initialize and train RL agent
-        logger.info("Step 2: Training RL agent...")
-        config = RLConfig(total_timesteps=total_timesteps)
+
+        # Split into train/test (e.g., last 200 for test)
+        if len(full_data) > 200:
+            training_data = full_data.iloc[:-200]
+            test_data = full_data.iloc[-200:]
+        else:
+            training_data = full_data
+            test_data = full_data
+
+        # Step 2: Hyperparameter optimization (now main step)
+        logger.info(f"Step 2: Hyperparameter optimization with {n_opt_trials} trials...")
+        optimizer = HyperparameterOptimizer(self.scanner)
+        opt_results = optimizer.optimize(training_data, n_trials=n_opt_trials, algorithm=algorithm)
+        best_params = opt_results.get('best_params', {})
+        logger.info(f"Best hyperparameters found: {best_params}")
+
+        # Step 3: Initialize and train RL agent with best hyperparameters
+        logger.info("Step 3: Training RL agent with best hyperparameters...")
+        config_kwargs = dict(total_timesteps=total_timesteps)
+        config_kwargs.update(best_params)
+        config = RLConfig(**config_kwargs)
         self.rl_agent = RLTradingAgent(algorithm=algorithm, config=config)
-        
         training_results = self.rl_agent.train(
             training_data, 
             save_path=f'models/rl_{algorithm.lower()}_model'
         )
-        
-        # Step 3: Evaluate on test data
-        logger.info("Step 3: Evaluating trained model...")
-        test_data = await self._collect_test_data(training_timeframe)
+
+        # Step 4: Evaluate on test data
+        logger.info("Step 4: Evaluating trained model...")
         evaluation_results = self.rl_agent.evaluate(test_data)
-        
-        # Step 4: Initialize meta-controller
-        logger.info("Step 4: Initializing meta-controller...")
+
+        # Step 5: Initialize meta-controller
+        logger.info("Step 5: Initializing meta-controller...")
         self.meta_controller = MetaController(strategy="confidence_blend")
-        
-        # Step 5: Create integrated system
-        logger.info("Step 5: Creating integrated trading system...")
+
+        # Step 6: Create integrated system
+        logger.info("Step 6: Creating integrated trading system...")
         self.integrated_system = IntegratedTradingSystem(
             scanner=self.scanner,
             rl_agent=self.rl_agent,
             meta_controller=self.meta_controller
         )
-        
-        # Step 6: Run test trading session
-        logger.info("Step 6: Running test trading session...")
+
+        # Step 7: Run test trading session (reuse same data)
+        logger.info("Step 7: Running test trading session...")
         test_session = await self.integrated_system.execute_trading_session(
             timeframe=training_timeframe,
-            dry_run=True
+            dry_run=True,
+            scanner_results=test_data
         )
-        
+
         pipeline_results = {
+            'optimization_results': opt_results,
             'training_results': training_results,
             'evaluation_results': evaluation_results,
             'test_session': test_session,
             'model_ready': True,
             'pipeline_timestamp': datetime.now(timezone.utc)
         }
-        
+
         logger.info("Pipeline completed successfully!")
         return pipeline_results
     
@@ -924,12 +940,18 @@ class RLTrainingPipeline:
         
         return training_data
     
-    async def _collect_test_data(self, timeframe: str) -> pd.DataFrame:
-        """Collect test data (could be out-of-sample)"""
-        # For now, use a subset of recent data
-        # In practice, you'd use completely separate historical periods
-        test_data = await self.scanner.scan_market(timeframe=timeframe)
-        return test_data.tail(50)  # Use last 50 observations for testing
+
+# --- FIX: Robust observation shape helper ---
+def make_fixed_observation(df, lookback=20, n_features=21):
+    """Return exactly (lookback, n_features)."""
+    arr = df.iloc[-lookback:].to_numpy()
+    if arr.shape[0] < lookback:
+        pad_rows = lookback - arr.shape[0]
+        arr = np.vstack([np.zeros((pad_rows, n_features)), arr])
+    arr = arr[-lookback:]
+    if arr.shape[1] != n_features:
+        raise ValueError(f"Expected {n_features} features, got {arr.shape[1]}")
+    return arr.astype(np.float32)
 
 # Automated Optimization System
 class HyperparameterOptimizer:
@@ -1016,13 +1038,11 @@ class HyperparameterOptimizer:
                 params[param] = np.random.uniform(low, high)
         return params
 
-# Example usage and integration
+# Usage and integration
 async def demo_rl_trading_system():
     """Demonstration of the complete RL trading system"""
-    
-    # This assumes you have the MomentumScanner available
-    # from your existing scanner.py file
-    
+
+    exchange = None
     try:
         # Initialize exchange (placeholder - use your existing exchange setup)
         import ccxt.async_support as ccxt_async
@@ -1030,52 +1050,52 @@ async def demo_rl_trading_system():
             'enableRateLimit': True,
             'rateLimit': 100,
         })
-        
+
         # Initialize scanner
         scanner = MomentumScanner(
             exchange=exchange,
             market_type='crypto',
             quote_currency='USDT',
-            min_volume_usd=1_000_000,
-            top_n=20
+            min_volume_usd=500_000,
+            top_n=30
         )
-        
+
         # Run training pipeline
         pipeline = RLTrainingPipeline(scanner)
         results = await pipeline.run_full_pipeline(
             algorithm='PPO',
             total_timesteps=50000
         )
-        
+
         print("=== RL TRADING SYSTEM RESULTS ===")
         print(f"Training completed: {results['training_results']['training_completed']}")
         print(f"Evaluation Sharpe Ratio: {results['evaluation_results']['sharpe_ratio']:.3f}")
-        print(f"Test session trades: {results['test_session']['trades_executed']}")
-        
+        print(f"Test session trades: {results['test_session'].get('trades_executed', 0)}")
+
         # Get performance report
         if pipeline.integrated_system is not None:
             performance = pipeline.integrated_system.get_performance_report()
             print(f"System performance: {performance}")
         else:
             print("Integrated trading system is not initialized; cannot get performance report.")
-        
+
         # Run hyperparameter optimization (optional)
         if len(scanner.scan_results) > 100:  # Only if we have enough data
             optimizer = HyperparameterOptimizer(scanner)
             training_data = await scanner.scan_market('daily')
             opt_results = optimizer.optimize(training_data, n_trials=10)
             print(f"Best hyperparameters: {opt_results['best_params']}")
-        
-        # Close exchange
-        await exchange.close()
-        
+
     except Exception as e:
         logger.error(f"Demo failed: {e}")
+    finally:
+        if exchange is not None:
+            await exchange.close()
 
 # Main execution
 if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(level=logging.INFO)
-    
+
     # Run demo
     asyncio.run(demo_rl_trading_system())

@@ -152,7 +152,7 @@ class ScenarioGenerator:
             
         prices = [d['price'] for d in self.current_data[-20:]]
         returns = [np.log(prices[i]/prices[i-1]) for i in range(1, len(prices))]
-        return np.std(returns) if returns else 0.02
+        return float(np.std(returns)) if returns else 0.02
         
     def generate_scenarios(self, num_scenarios: int = 50, 
                          scenario_length: int = 50,
@@ -587,7 +587,7 @@ class CounterfactualSimulator:
                 recent_trades = [t for t in trades[-5:] if t['timestamp'] > time.time() - 300]
                 if recent_trades:
                     avg_pnl = np.mean([t['pnl'] for t in recent_trades])
-                    stress_resistance = max(0.0, 1.0 + avg_pnl / 1000.0)  # Normalize
+                    stress_resistance = max(0.0, 1.0 + float(avg_pnl) / 1000.0)  # Normalize
                     
         return stress_resistance
         
@@ -624,12 +624,12 @@ class CounterfactualSimulator:
         return StrategyPerformance(
             strategy_name=strategy_name,
             scenario_name=scenario.name,
-            total_pnl=total_pnl,
-            max_drawdown=max_drawdown,
-            win_rate=win_rate,
-            sharpe_ratio=sharpe_ratio,
-            survival_rate=survival_rate,
-            stress_resistance=stress_resistance
+            total_pnl=float(total_pnl),
+            max_drawdown=float(max_drawdown),
+            win_rate=float(win_rate),
+            sharpe_ratio=float(sharpe_ratio),
+            survival_rate=float(survival_rate),
+            stress_resistance=float(stress_resistance)
         )
         
     def _default_performance(self, strategy_name: str, scenario_name: str) -> StrategyPerformance:
@@ -703,7 +703,7 @@ class RobustnessScorer:
         """Calculate a single composite robustness score"""
         if not performances:
             return 0.0
-            
+
         # Weighted combination of key metrics
         weights = {
             'avg_pnl': 0.25,
@@ -711,26 +711,25 @@ class RobustnessScorer:
             'stress_resistance': 0.20,
             'consistency': 0.25
         }
-        
-        avg_pnl = np.mean([p.total_pnl for p in performances])
-        survival_rate = np.mean([p.survival_rate for p in performances])
-        stress_resistance = np.mean([p.stress_resistance for p in performances])
-        
+
+        avg_pnl = float(np.mean([p.total_pnl for p in performances]))
+        survival_rate = float(np.mean([p.survival_rate for p in performances]))
+        stress_resistance = float(np.mean([p.stress_resistance for p in performances]))
+
         # Consistency (lower std is better)
-        pnl_std = np.std([p.total_pnl for p in performances])
+        pnl_std = float(np.std([p.total_pnl for p in performances]))
         consistency = max(0.0, 1.0 - pnl_std / (abs(avg_pnl) + 1e-8))
-        
+
         # Normalize PnL component
         pnl_normalized = max(0.0, min(1.0, (avg_pnl + 1000) / 2000))  # Scale -1000 to +1000 -> 0 to 1
-        
+
         composite = (
             pnl_normalized * weights['avg_pnl'] +
             survival_rate * weights['survival_rate'] +
             stress_resistance * weights['stress_resistance'] +
             consistency * weights['consistency']
         )
-        
-        return composite
+        return float(composite)
         
     def get_strategy_ranking(self) -> List[Tuple[str, float]]:
         """Get strategies ranked by robustness score"""
@@ -1083,25 +1082,23 @@ class ImaginationEngine:
     async def _generate_scenarios(self) -> List[MarketScenario]:
         """Generate diverse market scenarios for testing"""
         try:
+            if self.scenario_generator is None:
+                logger.error("Scenario generator is not initialized.")
+                return []
             scenarios = self.scenario_generator.generate_scenarios(
                 num_scenarios=self.config['num_scenarios'],
                 scenario_length=self.config['scenario_length'],
                 oracle_bias=True
             )
-            
             self.scenario_cache = scenarios
             logger.info(f"Generated {len(scenarios)} scenarios")
-            
             # Log scenario distribution
             scenario_types = defaultdict(int)
             for scenario in scenarios:
                 scenario_type = scenario.name.split('_')[0]
                 scenario_types[scenario_type] += 1
-                
             logger.info(f"Scenario distribution: {dict(scenario_types)}")
-            
             return scenarios
-            
         except Exception as e:
             logger.error(f"Scenario generation failed: {e}")
             return []
@@ -1302,15 +1299,26 @@ async def main():
         
     class MockStrategyTrainer:
         def __init__(self):
+            class Strategy:
+                def get_parameters(self, *args, **kwargs):
+                    return {'rsi_threshold': 70, 'stop_loss': 0.02}
+                def update_parameter(self, name, value, *args, **kwargs):
+                    pass
+                def update(self, data, *args, **kwargs):
+                    # Simulate a signal output for testing
+                    return {'signal': 'Buy', 'confidence': 0.7}
+
+            class MAStrategy:
+                def get_parameters(self, *args, **kwargs):
+                    return {'ma_period': 20, 'position_size': 0.1}
+                def update_parameter(self, name, value, *args, **kwargs):
+                    pass
+                def update(self, data, *args, **kwargs):
+                    return {'signal': 'Hold', 'confidence': 0.5}
+
             self.strategies = {
-                'rsi_strategy': type('Strategy', (), {
-                    'get_parameters': lambda: {'rsi_threshold': 70, 'stop_loss': 0.02},
-                    'update_parameter': lambda name, value: None
-                })(),
-                'ma_strategy': type('Strategy', (), {
-                    'get_parameters': lambda: {'ma_period': 20, 'position_size': 0.1},
-                    'update_parameter': lambda name, value: None
-                })()
+                'rsi_strategy': Strategy(),
+                'ma_strategy': MAStrategy()
             }
             
     class MockExecutionDaemon:

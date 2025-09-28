@@ -5,14 +5,16 @@ Compatibility adapters to make the new strategies work with your StrategyTrainer
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, Union
-
+from strategy_trainer_agent import (
+    UTSignalAgent, GradientTrendAgent, SupportResistanceAgent
+)
 
 
 # Import the new strategies 
 from additional_strategies import (
      MeanReversionAgent, MomentumBreakoutAgent, VolatilityRegimeAgent,
      PairsTradingAgent, AnomalyDetectionAgent, SentimentMomentumAgent,
-     RegimeChangeAgent
+     RegimeChangeAgent,
  )
 
 class StrategyAdapter:
@@ -87,7 +89,7 @@ class StrategyAdapter:
                         signal_values.append(0.0)
                 
                 # Return average signal across all symbols
-                return np.mean(signal_values) if signal_values else 0.0
+                return float(np.mean(signal_values)) if signal_values else 0.0
             else:
                 return 0.0
                 

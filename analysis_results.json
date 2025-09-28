@@ -1,0 +1,813 @@
+{
+  "timestamp": "2025-08-27T23:03:08.873480",
+  "basic_comparison": {
+    "avg_rsi": {
+      "previous": 62.1,
+      "current": 87.25
+    },
+    "top_score": {
+      "previous": 111.04,
+      "current": 110.14
+    },
+    "new_leaders": [
+      "FIL/USDT:USDT",
+      "KSM/USDT:USDT",
+      "SNX/USDT:USDT",
+      "XRP/USD:XRP",
+      "RUNE/USDT:USDT",
+      "ETH/USD:ETH",
+      "KCS/USDT:USDT",
+      "ATOM/USDT:USDT",
+      "FXS/USDT:USDT",
+      "LTC/USDT:USDT",
+      "CVX/USDT:USDT",
+      "ILV/USDT:USDT",
+      "YFI/USDT:USDT",
+      "COMP/USDT:USDT",
+      "SUI/USDT:USDT",
+      "ETC/USDT:USDT",
+      "TRB/USDT:USDT",
+      "GALA/USDT:USDT",
+      "UNI/USDT:USDT",
+      "ETH/USDT:USDT",
+      "BANANA/USDT:USDT",
+      "SUSHI/USDT:USDT",
+      "DASH/USDT:USDT",
+      "CRV/USDT:USDT",
+      "IMX/USDT:USDT",
+      "XRP/USDT:USDT"
+    ],
+    "fallen_leaders": [
+      "UMA/USDT:USDT",
+      "ALPINE/USDT:USDT",
+      "CTSI/USDT:USDT",
+      "ASR/USDT:USDT",
+      "ZEREBRO/USDT:USDT",
+      "IP/USDT:USDT",
+      "PROM/USDT:USDT",
+      "AERO/USDT:USDT",
+      "SCR/USDT:USDT",
+      "BB/USDT:USDT",
+      "PENDLE/USDT:USDT",
+      "MORPHO/USDT:USDT",
+      "PHA/USDT:USDT",
+      "BAN/USDT:USDT",
+      "DOLO/USDT:USDT",
+      "QTUM/USDT:USDT",
+      "BAND/USDT:USDT",
+      "DEGO/USDT:USDT",
+      "AIOT/USDT:USDT",
+      "OGN/USDT:USDT",
+      "TUT/USDT:USDT",
+      "MEME/USDT:USDT",
+      "BIO/USDT:USDT",
+      "EPIC/USDT:USDT",
+      "KOMA/USDT:USDT",
+      "VVV/USDT:USDT"
+    ],
+    "consistent_performers": [
+      "BNB/USDT:USDT",
+      "NEO/USDT:USDT",
+      "API3/USDT:USDT",
+      "LINK/USDT:USDT"
+    ],
+    "turnover_rate": 86.7
+  },
+  "sector_analysis": {
+    "error": "Sector data not available"
+  },
+  "market_breadth": {
+    "advance_decline_ratio": 0.0,
+    "advancing_cryptos": 0,
+    "declining_cryptos": 0,
+    "new_highs": "30",
+    "new_lows": "0",
+    "cryptos_above_ma": 0
+  },
+  "clustering_analysis": {
+    "cluster_0": {
+      "count": 3,
+      "avg_score": 107.663,
+      "characteristics": {
+        "mean": 107.663,
+        "median": 106.83,
+        "std": 2.183,
+        "min": 106.02,
+        "max": 110.14,
+        "q25": 106.425,
+        "q75": 108.485,
+        "skewness": 0.599,
+        "kurtosis": -1.5
+      },
+      "top_cryptos": [
+        "ETH/USD:ETH",
+        "UNI/USDT:USDT",
+        "ETH/USDT:USDT"
+      ]
+    },
+    "cluster_1": {
+      "count": 17,
+      "avg_score": 96.481,
+      "characteristics": {
+        "mean": 96.481,
+        "median": 97.3,
+        "std": 3.869,
+        "min": 84.38,
+        "max": 100.95,
+        "q25": 94.88,
+        "q75": 99.12,
+        "skewness": -1.855,
+        "kurtosis": 3.633
+      },
+      "top_cryptos": [
+        "ATOM/USDT:USDT",
+        "NEO/USDT:USDT",
+        "DASH/USDT:USDT"
+      ]
+    },
+    "cluster_2": {
+      "count": 4,
+      "avg_score": 98.565,
+      "characteristics": {
+        "mean": 98.565,
+        "median": 98.72,
+        "std": 1.238,
+        "min": 96.92,
+        "max": 99.9,
+        "q25": 98.135,
+        "q75": 99.15,
+        "skewness": -0.412,
+        "kurtosis": -1.014
+      },
+      "top_cryptos": [
+        "XRP/USD:XRP",
+        "ETC/USDT:USDT",
+        "SUSHI/USDT:USDT"
+      ]
+    },
+    "cluster_3": {
+      "count": 2,
+      "avg_score": 99.32,
+      "characteristics": {
+        "mean": 99.32,
+        "median": 99.32,
+        "std": 1.386,
+        "min": 98.34,
+        "max": 100.3,
+        "q25": 98.83,
+        "q75": 99.81,
+        "skewness": 0.0,
+        "kurtosis": -2.0
+      },
+      "top_cryptos": [
+        "FXS/USDT:USDT",
+        "CRV/USDT:USDT"
+      ]
+    },
+    "cluster_4": {
+      "count": 4,
+      "avg_score": 93.738,
+      "characteristics": {
+        "mean": 93.738,
+        "median": 94.275,
+        "std": 3.819,
+        "min": 88.68,
+        "max": 97.72,
+        "q25": 92.175,
+        "q75": 95.837,
+        "skewness": -0.436,
+        "kurtosis": -1.098
+      },
+      "top_cryptos": [
+        "CVX/USDT:USDT",
+        "BANANA/USDT:USDT",
+        "SUI/USDT:USDT"
+      ]
+    }
+  },
+  "risk_analysis": {
+    "volatility": {
+      "current": 4.89,
+      "previous": 11.694
+    },
+    "drawdown": {
+      "current": -23.39,
+      "previous": -49.61
+    },
+    "warnings": {
+      "overbought_cryptos": "28",
+      "oversold_cryptos": "0",
+      "high_momentum": "18",
+      "volume_spikes": "28"
+    }
+  },
+  "performance_attribution": {
+    "best_performers": [
+      {
+        "symbol": "NEO/USDT:USDT",
+        "score_change": 13.629999999999995
+      },
+      {
+        "symbol": "BNB/USDT:USDT",
+        "score_change": 8.680000000000007
+      },
+      {
+        "symbol": "LINK/USDT:USDT",
+        "score_change": 4.570000000000007
+      },
+      {
+        "symbol": "API3/USDT:USDT",
+        "score_change": -17.13000000000001
+      }
+    ],
+    "worst_performers": [
+      {
+        "symbol": "API3/USDT:USDT",
+        "score_change": -17.13000000000001
+      },
+      {
+        "symbol": "LINK/USDT:USDT",
+        "score_change": 4.570000000000007
+      },
+      {
+        "symbol": "BNB/USDT:USDT",
+        "score_change": 8.680000000000007
+      },
+      {
+        "symbol": "NEO/USDT:USDT",
+        "score_change": 13.629999999999995
+      }
+    ],
+    "consistency_score": 13.561,
+    "mean_reversion_candidates": []
+  },
+  "alerts": [
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "ETH/USD:ETH",
+      "message": "RSI at 96.5 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "KSM/USDT:USDT",
+      "message": "RSI at 92.7 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "ATOM/USDT:USDT",
+      "message": "RSI at 83.3 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "TRB/USDT:USDT",
+      "message": "RSI at 82.3 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "FXS/USDT:USDT",
+      "message": "RSI at 98.3 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "DASH/USDT:USDT",
+      "message": "RSI at 91.4 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "ETC/USDT:USDT",
+      "message": "RSI at 95.4 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "BNB/USDT:USDT",
+      "message": "RSI at 90.1 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "LTC/USDT:USDT",
+      "message": "RSI at 83.9 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "ILV/USDT:USDT",
+      "message": "RSI at 91.5 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "UNI/USDT:USDT",
+      "message": "RSI at 83.7 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "XRP/USD:XRP",
+      "message": "RSI at 91.5 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "FIL/USDT:USDT",
+      "message": "RSI at 87.9 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "SUSHI/USDT:USDT",
+      "message": "RSI at 92.0 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "RUNE/USDT:USDT",
+      "message": "RSI at 83.0 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "IMX/USDT:USDT",
+      "message": "RSI at 90.6 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "XRP/USDT:USDT",
+      "message": "RSI at 92.2 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "LINK/USDT:USDT",
+      "message": "RSI at 92.5 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "CRV/USDT:USDT",
+      "message": "RSI at 92.2 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "NEO/USDT:USDT",
+      "message": "RSI at 94.3 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "ETH/USDT:USDT",
+      "message": "RSI at 96.1 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "API3/USDT:USDT",
+      "message": "RSI at 81.7 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "COMP/USDT:USDT",
+      "message": "RSI at 83.7 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "GALA/USDT:USDT",
+      "message": "RSI at 89.0 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "SNX/USDT:USDT",
+      "message": "RSI at 82.9 - Consider taking profits",
+      "priority": "HIGH"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "ETH/USD:ETH",
+      "message": "Volume spike: 3.3x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "ETH/USD:ETH",
+      "message": "Strong momentum: 20.3%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "KSM/USDT:USDT",
+      "message": "Volume spike: 3.8x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "ATOM/USDT:USDT",
+      "message": "Volume spike: 2.3x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "TRB/USDT:USDT",
+      "message": "Volume spike: 2.3x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "YFI/USDT:USDT",
+      "message": "RSI at 79.6 - Consider taking profits",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "YFI/USDT:USDT",
+      "message": "Volume spike: 2.3x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "FXS/USDT:USDT",
+      "message": "Volume spike: 5.3x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "FXS/USDT:USDT",
+      "message": "Strong momentum: 60.9%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "DASH/USDT:USDT",
+      "message": "Volume spike: 3.1x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "ETC/USDT:USDT",
+      "message": "Volume spike: 6.2x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "ETC/USDT:USDT",
+      "message": "Strong momentum: 26.9%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "BNB/USDT:USDT",
+      "message": "Volume spike: 2.6x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "LTC/USDT:USDT",
+      "message": "Volume spike: 3.2x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "ILV/USDT:USDT",
+      "message": "Volume spike: 2.6x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "UNI/USDT:USDT",
+      "message": "Volume spike: 2.1x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "UNI/USDT:USDT",
+      "message": "Strong momentum: 16.5%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "CVX/USDT:USDT",
+      "message": "RSI at 78.1 - Consider taking profits",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "CVX/USDT:USDT",
+      "message": "Volume spike: 3.5x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "CVX/USDT:USDT",
+      "message": "Strong momentum: 37.2%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "XRP/USD:XRP",
+      "message": "Volume spike: 3.4x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "XRP/USD:XRP",
+      "message": "Strong momentum: 24.6%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "FIL/USDT:USDT",
+      "message": "Volume spike: 2.5x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "SUSHI/USDT:USDT",
+      "message": "Volume spike: 5.5x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "SUSHI/USDT:USDT",
+      "message": "Strong momentum: 27.7%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "RUNE/USDT:USDT",
+      "message": "Volume spike: 2.8x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "OVERBOUGHT",
+      "symbol": "BANANA/USDT:USDT",
+      "message": "RSI at 77.3 - Consider taking profits",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "BANANA/USDT:USDT",
+      "message": "Volume spike: 2.4x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "BANANA/USDT:USDT",
+      "message": "Strong momentum: 20.6%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "IMX/USDT:USDT",
+      "message": "Volume spike: 2.1x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "IMX/USDT:USDT",
+      "message": "Strong momentum: 16.3%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "XRP/USDT:USDT",
+      "message": "Volume spike: 2.4x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "XRP/USDT:USDT",
+      "message": "Strong momentum: 25.0%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "LINK/USDT:USDT",
+      "message": "Volume spike: 2.4x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "LINK/USDT:USDT",
+      "message": "Strong momentum: 16.6%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "CRV/USDT:USDT",
+      "message": "Volume spike: 2.4x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "CRV/USDT:USDT",
+      "message": "Strong momentum: 55.7%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "NEO/USDT:USDT",
+      "message": "Volume spike: 2.1x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "ETH/USDT:USDT",
+      "message": "Strong momentum: 20.0%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "API3/USDT:USDT",
+      "message": "Volume spike: 3.5x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "KCS/USDT:USDT",
+      "message": "Volume spike: 3.0x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "STRONG_MOMENTUM",
+      "symbol": "KCS/USDT:USDT",
+      "message": "Strong momentum: 25.0%",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "SUI/USDT:USDT",
+      "message": "Volume spike: 2.5x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "GALA/USDT:USDT",
+      "message": "Volume spike: 3.6x average",
+      "priority": "MEDIUM"
+    },
+    {
+      "type": "VOLUME_SPIKE",
+      "symbol": "SNX/USDT:USDT",
+      "message": "Volume spike: 2.6x average",
+      "priority": "MEDIUM"
+    }
+  ],
+  "recommendations": {
+    "buy_candidates": [],
+    "sell_candidates": [
+      {
+        "symbol": "ETH/USD:ETH",
+        "composite_score": 110.14,
+        "rsi": 96.48973135336412
+      },
+      {
+        "symbol": "KSM/USDT:USDT",
+        "composite_score": 96.92,
+        "rsi": 92.70949099799954
+      },
+      {
+        "symbol": "ATOM/USDT:USDT",
+        "composite_score": 100.95,
+        "rsi": 83.25581395348841
+      },
+      {
+        "symbol": "TRB/USDT:USDT",
+        "composite_score": 94.88,
+        "rsi": 82.27722772277224
+      },
+      {
+        "symbol": "YFI/USDT:USDT",
+        "composite_score": 96.79,
+        "rsi": 79.59442332065906
+      },
+      {
+        "symbol": "FXS/USDT:USDT",
+        "composite_score": 100.3,
+        "rsi": 98.29580036518564
+      },
+      {
+        "symbol": "DASH/USDT:USDT",
+        "composite_score": 99.16,
+        "rsi": 91.36842105263158
+      },
+      {
+        "symbol": "ETC/USDT:USDT",
+        "composite_score": 98.9,
+        "rsi": 95.4192444385942
+      },
+      {
+        "symbol": "BNB/USDT:USDT",
+        "composite_score": 99.12,
+        "rsi": 90.07426001464272
+      },
+      {
+        "symbol": "LTC/USDT:USDT",
+        "composite_score": 98.72,
+        "rsi": 83.88561053109397
+      },
+      {
+        "symbol": "ILV/USDT:USDT",
+        "composite_score": 97.3,
+        "rsi": 91.48936170212764
+      },
+      {
+        "symbol": "UNI/USDT:USDT",
+        "composite_score": 106.83,
+        "rsi": 83.6665965059987
+      },
+      {
+        "symbol": "CVX/USDT:USDT",
+        "composite_score": 97.72,
+        "rsi": 78.05365296803653
+      },
+      {
+        "symbol": "XRP/USD:XRP",
+        "composite_score": 99.9,
+        "rsi": 91.50395409055916
+      },
+      {
+        "symbol": "FIL/USDT:USDT",
+        "composite_score": 98.33,
+        "rsi": 87.94162826420886
+      },
+      {
+        "symbol": "SUSHI/USDT:USDT",
+        "composite_score": 98.54,
+        "rsi": 91.98423127463865
+      },
+      {
+        "symbol": "RUNE/USDT:USDT",
+        "composite_score": 96.68,
+        "rsi": 83.01768990634758
+      },
+      {
+        "symbol": "BANANA/USDT:USDT",
+        "composite_score": 95.21,
+        "rsi": 77.29941291585126
+      },
+      {
+        "symbol": "IMX/USDT:USDT",
+        "composite_score": 93.12,
+        "rsi": 90.60254284134884
+      },
+      {
+        "symbol": "XRP/USDT:USDT",
+        "composite_score": 99.14,
+        "rsi": 92.16207240119562
+      },
+      {
+        "symbol": "LINK/USDT:USDT",
+        "composite_score": 96.51,
+        "rsi": 92.47311827956987
+      },
+      {
+        "symbol": "CRV/USDT:USDT",
+        "composite_score": 98.34,
+        "rsi": 92.1742209631728
+      },
+      {
+        "symbol": "NEO/USDT:USDT",
+        "composite_score": 99.24,
+        "rsi": 94.3327239488117
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "composite_score": 106.02,
+        "rsi": 96.11963570643894
+      },
+      {
+        "symbol": "API3/USDT:USDT",
+        "composite_score": 93.91,
+        "rsi": 81.67006109979636
+      },
+      {
+        "symbol": "COMP/USDT:USDT",
+        "composite_score": 98.62,
+        "rsi": 83.71187540558083
+      },
+      {
+        "symbol": "GALA/USDT:USDT",
+        "composite_score": 84.38,
+        "rsi": 88.97893030794167
+      },
+      {
+        "symbol": "SNX/USDT:USDT",
+        "composite_score": 93.32,
+        "rsi": 82.9398663697105
+      }
+    ],
+    "watch_list": [],
+    "risk_warnings": []
+  }
+}
