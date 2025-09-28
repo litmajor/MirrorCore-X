@@ -1,0 +1,124 @@
+Here’s a no-fluff upgrade map: fix the real weak spots first, add horsepower second, sparkle last.
+
+Tick the boxes in roughly this order and you’ll turn a science-fair project into something you can actually risk capital on.
+
+---
+
+1. Make it SURVIVE first (zero-death rules)
+   - Secrets vault
+
+     – Move API keys → environment variables or AWS/GCP secret manager; never a JSON file again.  
+   - Kill-switch & circuit-breaker
+
+     – Global “STOP” flag that hits the exchange in < 1 s if: draw-down > X %, latency > Y ms, or API starts 403-ing.  
+   - Independent watch-dog process
+
+     – A second Python script (or systemd unit) that heart-beats the main loop; if the bus stalls ≥ N seconds, flatten all positions and kill the process.  
+   - Redundant data ingress
+
+     – Pull the same symbol from two sources (e.g., CCXT + Polygon/Tiingo); if mid-price diff > 0.2 % for > 5 s, halt.  
+   - Log structure that auditors can read
+
+     – Every order event → append-only CSV or TimescaleDB row with micro-second timestamp, quote snapshot, SL/TP reason.
+
+   – Deliverable: you can yank the power cable and still know your exact position & P&L.
+
+---
+
+2. Back-test like you mean it
+   - Vectorised baseline first
+
+     – Re-write core strategy logic in NumPy/Numba so a 5-year BT on 1-min BTC finishes in < 10 s.  
+   - Slippage & fee model
+
+     – Use exchange’s historical maker/taker schedule; simulate queue position with a simple depth-based slippage curve (or use NIST-style queue-replay if you have L2 data).  
+   - Regime split
+
+     – Separate vol regimes (ATR quartiles) and trend vs mean-revert periods; demand positive expectation in at least 3 of 4 regimes or you don’t go live.
+
+   – Deliverable: equity curve, draw-down table, hit-ratio, Sharpe, MAR—exported to a one-page PDF you can show a prop desk.
+
+---
+
+3. Live data & execution path—harden it
+   - Dual-path order entry
+
+     – Primary: native WebSocket execution gateway.
+
+     – Fallback: REST snapshot + cancel/replace loop; switch automatically.  
+   - Async → multi-process
+
+     – One process per critical agent (market data, signal, execution, risk) linked by ZeroMQ or NATS; a single blocking call can’t freeze trading.  
+   - Micro-second clock sync
+
+     – Run `chrony` or PTP; tag every quote & order with exchange-adjusted epoch µs so you can prove latency later.
+
+   – Deliverable: 99.9 % uptime metric logged externally (Grafana + Prometheus).
+
+---
+
+4. Strategy layer—make it adaptive
+   - Online learning instead of batch Bayesian
+
+     – Replace `bayes_opt` with a streaming algorithm:
+
+       – Kalman filter for linear coefficients, or
+
+       – Adaptive Boltzmann machine / online gradient boosting (river library) updated every N trades.  
+   - Feature expansion
+
+     – Add order-flow (volume imbalance, trade-through rate) and funding-rate deltas; those dominate crypto short-term edge.
+
+   – Meta-labeling
+
+     – Use your primary signal only to screen; a secondary XGBoost model (trained on 0/1 “did the market move X bps in T minutes”) decides position size → higher SNR, lower turnover.
+
+---
+
+5. Risk & money-management that scales
+   - Vol-targeting
+
+     – Target 10 % annualised vol; auto-size nominal = (target vol ÷ realised vol 20-day) × base exposure.  
+   - Correlation-based heat-map
+
+     – If open trades cross-correlation > 0.7, cut total risk by 1/3.  
+   - Kelly-fraction cap
+
+     – Never bet more than 0.25 × Kelly; keeps you away from ruin even with estimation error.
+
+   – Overnight & weekend gap risk
+
+     – Flatten 2 × ATR away from last print 30 min before exchange maintenance or Friday 21:00 UTC.
+
+---
+
+6. Infrastructure upgrade
+   - Containerise
+
+     – `python:3.11-slim` image, multi-stage build; push to private registry.  
+   - Orchestrate
+
+     – Kubernetes or AWS ECS with auto-restart; horizontal pod scaler for data-ingest pods when you add symbols.  
+   - Persist state in Redis Cluster (hot) + Postgres (cold); daily snapshot to S3 so you can replay any session in < 15 min.
+
+---
+
+7. Compliance & audit trail (often forgotten)
+   - Assign unique algo-ID in FIX Tag 7928; many exchanges now require it.  
+   - Store permanent audit log (Write-Once-Read-Many bucket) with SHA-256 checksum; keeps regulators happy.  
+   - GDPR / data-residency check if you touch EU client data.
+
+---
+
+8. Only after ALL above—make it “smarter”
+   - Deep RL: PPO or A2C agent that chooses among your handcrafted strategies; train in gym-environment built from your slippage-aware simulator.  
+   - Sentiment stack: parse on-chain funding, Twitter VADER, TG groups; feed into meta-labeling model—but only once you have 1-7 nailed, or you’ll just over-fit noise.
+
+---
+
+Quick win checklist (this week)
+1. Move keys → env vars, add global kill-switch.  
+2. Write a 3-year BT with realistic fees; print Sharpe & max draw-down.  
+3. Convert one big async script into 3 separate OS processes talking ZeroMQ.  
+
+Do those three and you’ve already leap-frogged 90 % of GitHub trading repos. Everything else is incremental alpha or operational polish.
