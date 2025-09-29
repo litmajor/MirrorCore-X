@@ -47,3 +47,6 @@ multiprocess>=0.70.12.2
 # For pandas, numpy, etc.
 # For abc, typing, collections, etc. (stdlib)
 # For arch_ctrl, strategy_adapters, etc. (local modules)
+psutil>=7.1.0
+aiofiles>=24.1.0
+python-socketio>=5.13.0

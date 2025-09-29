@@ -47,18 +47,16 @@ class DashboardManager:
         """Initialize the trading system"""
         try:
             # Initialize exchange and scanner
-            self.exchange = ccxt.kucoinfutures({'enableRateLimit': True})
+            self.exchange = ccxt.kucoinfutures()
+            self.exchange.enableRateLimit = True
             config = get_dynamic_config()
             self.scanner = MomentumScanner(self.exchange, config=config)
-            
             # Create MirrorCore system
             system_components = await create_mirrorcore_system(dry_run=True)
             self.sync_bus = system_components[0]
             self.trade_analyzer = system_components[1]
-            
             logger.info("Dashboard system initialized successfully")
             return True
-            
         except Exception as e:
             logger.error(f"Failed to initialize system: {e}")
             return False
@@ -67,16 +65,16 @@ class DashboardManager:
         """Main simulation loop"""
         self.running = True
         tick_count = 0
-        
         while self.running:
             try:
+                if self.sync_bus is None:
+                    logger.error("sync_bus is not initialized.")
+                    await asyncio.sleep(1.0)
+                    continue
                 # Process one tick
                 await self.sync_bus.tick()
                 tick_count += 1
-                
                 # Get current state
-                state = await self.sync_bus.get_state('all')
-                
                 # Prepare dashboard data
                 dashboard_data = {
                     'tick_count': tick_count,
@@ -89,13 +87,10 @@ class DashboardManager:
                     'oracle_directives': await self.sync_bus.get_state('oracle_directives'),
                     'trades': await self.sync_bus.get_state('trades')
                 }
-                
                 # Emit to connected clients
                 socketio.emit('dashboard_update', dashboard_data)
-                
                 # Wait before next tick
                 await asyncio.sleep(1.0)
-                
             except Exception as e:
                 logger.error(f"Error in simulation loop: {e}")
                 await asyncio.sleep(1.0)

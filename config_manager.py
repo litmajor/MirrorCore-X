@@ -209,23 +209,25 @@ class ConfigManager:
                     if field.name == key:
                         field_type = field.type
                         break
-                
                 if field_type:
                     try:
-                        # Handle Optional types
-                        if hasattr(field_type, '__origin__') and field_type.__origin__ is Union:
-                            # This is Optional[T], get T
-                            field_type = field_type.__args__[0]
-                        
+                        # Handle Optional types (Union, Optional)
+                        origin = getattr(field_type, "__origin__", None)
+                        if origin is Union and hasattr(field_type, "__args__"):
+                            # This is Optional[T], get T (ignore NoneType)
+                            args = getattr(field_type, "__args__", None)
+                            if args:
+                                non_none_types = [t for t in args if t is not type(None)]
+                                if non_none_types:
+                                    field_type = non_none_types[0]
                         # Convert value to correct type
                         if field_type == bool and isinstance(value, str):
                             value = value.lower() in ('true', '1', 'yes', 'on')
                         elif field_type in (int, float) and isinstance(value, str):
                             value = field_type(value)
-                        
                         setattr(self.config, key, value)
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"Could not convert config value {key}={value}: {e}")
+                    except (ValueError, TypeError) as err:
+                        logger.warning(f"Could not convert config value {key}={value}: {err}")
     
     def _load_environment_variables(self):
         """Load configuration from environment variables"""

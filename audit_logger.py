@@ -342,7 +342,9 @@ class AuditLogger:
             previous_checksum = None
             
             async with aiofiles.open(target_file, 'r') as f:
-                async for line_num, line in enumerate(f, 1):
+                line_num = 0
+                async for line in f:
+                    line_num += 1
                     try:
                         event_dict = json.loads(line.strip())
                         verification_result['total_events'] += 1
