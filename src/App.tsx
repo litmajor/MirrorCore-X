@@ -12,6 +12,7 @@ import Optimization from './pages/Optimization';
 import RLAgent from './pages/RLAgent';
 import Backtesting from './pages/Backtesting';
 import AgentMonitor from './pages/AgentMonitor';
+import Audit from './pages/Audit';
 import Layout from './components/Layout';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
           <Route path="/rl-agent" element={<RLAgent />} />
           <Route path="/backtesting" element={<Backtesting />} />
           <Route path="/agent-monitor" element={<AgentMonitor />} />
+          <Route path="/audit" element={<Audit />} />
         </Routes>
       </Layout>
     </Router>

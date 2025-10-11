@@ -22,6 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/backtesting', icon: BarChart3, label: 'Backtesting' },
     { path: '/agent-monitor', icon: Brain, label: 'Agent Monitor' },
     { path: '/rl-agent', icon: Brain, label: 'RL Agent' },
+    { path: '/audit', icon: Shield, label: 'Audit Trail' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
