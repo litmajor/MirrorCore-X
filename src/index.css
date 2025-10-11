@@ -1,18 +1,149 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  body {
+    @apply bg-bg-primary text-txt-primary font-body;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code {
+    @apply font-mono;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+@layer components {
+  /* Glass Effect */
+  .glass {
+    @apply bg-bg-secondary/70 backdrop-blur-xl border border-brand-cyan/20;
+  }
+
+  /* Neon Text Effect */
+  .neon-text {
+    text-shadow: 0 0 10px #00D9FF, 0 0 20px #00D9FF, 0 0 30px #7B2FFF;
+  }
+
+  /* Neon Glow Effect */
+  .neon-glow {
+    box-shadow: 0 0 15px rgba(0, 217, 255, 0.5), 0 0 30px rgba(123, 47, 255, 0.3);
+  }
+
+  /* Brand Card */
+  .brand-card {
+    @apply glass rounded-xl p-6 hover:border-brand-cyan/50 transition-all hover:shadow-brand-glow;
+  }
+
+  /* Brand Button Primary */
+  .btn-primary {
+    @apply bg-gradient-primary text-white font-semibold px-6 py-3 rounded-lg;
+    @apply hover:shadow-brand-glow transition-all duration-300;
+    @apply active:scale-95;
+  }
+
+  /* Brand Button Secondary */
+  .btn-secondary {
+    @apply glass text-brand-cyan font-semibold px-6 py-3 rounded-lg;
+    @apply hover:bg-brand-cyan/10 hover:shadow-neon transition-all duration-300;
+    @apply active:scale-95;
+  }
+
+  /* Gradient Text */
+  .gradient-text {
+    @apply bg-gradient-primary bg-clip-text text-transparent;
+  }
+
+  /* Metric Card */
+  .metric-card {
+    @apply brand-card;
+  }
+
+  /* Status Indicator */
+  .status-active {
+    @apply w-3 h-3 rounded-full bg-success animate-pulse;
+  }
+
+  .status-inactive {
+    @apply w-3 h-3 rounded-full bg-error;
+  }
+
+  .status-warning {
+    @apply w-3 h-3 rounded-full bg-warning;
+  }
+
+  /* Trading Signal Cards */
+  .signal-buy {
+    @apply brand-card border-l-4 border-l-success;
+  }
+
+  .signal-sell {
+    @apply brand-card border-l-4 border-l-error;
+  }
+
+  /* Chart Container */
+  .chart-container {
+    @apply glass rounded-xl p-6;
+  }
+
+  /* Page Header */
+  .page-header {
+    @apply mb-6;
+  }
+
+  .page-title {
+    @apply text-3xl font-bold gradient-text mb-2;
+  }
+
+  .page-subtitle {
+    @apply text-txt-secondary;
+  }
+
+  /* Navigation Active State */
+  .nav-active {
+    @apply bg-brand-cyan text-white shadow-brand-glow;
+  }
+
+  .nav-inactive {
+    @apply text-txt-secondary hover:bg-bg-surface hover:text-white;
+  }
+}
+
+@layer utilities {
+  /* Custom scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-brand-cyan/30 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-brand-cyan/50;
+  }
+
+  /* Animated gradient background */
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient-shift 3s ease infinite;
+  }
+
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
 }

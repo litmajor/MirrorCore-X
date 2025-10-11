@@ -24,29 +24,29 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900">
+    <div className="min-h-screen bg-gradient-secondary">
       {/* Top Navigation Bar */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 z-50">
+      <div className="fixed top-0 left-0 right-0 h-16 glass border-b border-brand-cyan/20 z-50">
         <div className="flex items-center justify-between h-full px-6">
           <div className="flex items-center space-x-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              className="p-2 hover:bg-bg-surface rounded-lg transition-colors"
             >
               {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              MirrorCore-X
+            <h1 className="text-xl font-display font-bold gradient-text neon-text">
+              MIRRORCORE-X
             </h1>
           </div>
           
           <div className="flex items-center space-x-4">
-            <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors relative">
+              <Bell className="w-5 h-5 text-brand-cyan" />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
             </button>
-            <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-              <User className="w-5 h-5" />
+            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors">
+              <User className="w-5 h-5 text-brand-cyan" />
             </button>
           </div>
         </div>
@@ -54,7 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Sidebar */}
       <div
-        className={`fixed left-0 top-16 bottom-0 w-64 bg-slate-900/50 backdrop-blur-xl border-r border-slate-800 transition-transform duration-300 z-40 ${
+        className={`fixed left-0 top-16 bottom-0 w-64 glass border-r border-brand-cyan/20 transition-transform duration-300 z-40 custom-scrollbar ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -69,8 +69,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 to={item.path}
                 className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                    ? 'nav-active'
+                    : 'nav-inactive'
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -87,7 +87,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           sidebarOpen ? 'pl-64' : 'pl-0'
         }`}
       >
-        <div className="p-6">
+        <div className="p-6 custom-scrollbar">
           {children}
         </div>
       </div>

@@ -8,42 +8,45 @@ const Analytics: React.FC = () => {
   const { data: performance } = useAPI('/api/performance/summary');
   const { data: strategies } = useAPI('/api/strategies');
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+  const COLORS = ['#00D9FF', '#7B2FFF', '#00FF88', '#FFB800', '#FF3366'];
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold text-white">Performance Analytics</h1>
+      <div className="page-header">
+        <h1 className="page-title">Performance Analytics</h1>
+        <p className="page-subtitle">Comprehensive trading performance metrics</p>
+      </div>
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="metric-card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-slate-400 text-sm font-medium">Total P&L</h3>
-            <DollarSign className="w-5 h-5 text-green-400" />
+            <h3 className="text-txt-secondary text-sm font-medium">Total P&L</h3>
+            <DollarSign className="w-5 h-5 text-success" />
           </div>
           <p className="text-3xl font-bold text-white">${performance?.total_pnl?.toFixed(2) || '0.00'}</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="metric-card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-slate-400 text-sm font-medium">Win Rate</h3>
-            <Target className="w-5 h-5 text-blue-400" />
+            <h3 className="text-txt-secondary text-sm font-medium">Win Rate</h3>
+            <Target className="w-5 h-5 text-brand-cyan" />
           </div>
           <p className="text-3xl font-bold text-white">{performance?.win_rate?.toFixed(1) || '0'}%</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="metric-card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-slate-400 text-sm font-medium">Sharpe Ratio</h3>
-            <TrendingUp className="w-5 h-5 text-purple-400" />
+            <h3 className="text-txt-secondary text-sm font-medium">Sharpe Ratio</h3>
+            <TrendingUp className="w-5 h-5 text-brand-purple" />
           </div>
           <p className="text-3xl font-bold text-white">{performance?.sharpe_ratio?.toFixed(2) || '0.00'}</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="metric-card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-slate-400 text-sm font-medium">Max Drawdown</h3>
-            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <h3 className="text-txt-secondary text-sm font-medium">Max Drawdown</h3>
+            <AlertTriangle className="w-5 h-5 text-error" />
           </div>
           <p className="text-3xl font-bold text-white">{performance?.max_drawdown?.toFixed(1) || '0'}%</p>
         </div>
@@ -51,7 +54,7 @@ const Analytics: React.FC = () => {
 
       {/* Strategy Performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="chart-container">
           <h3 className="text-lg font-semibold text-white mb-4">Strategy P&L Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -74,7 +77,7 @@ const Analytics: React.FC = () => {
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="chart-container">
           <h3 className="text-lg font-semibold text-white mb-4">Win Rate by Strategy</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={strategies?.strategies || []}>
