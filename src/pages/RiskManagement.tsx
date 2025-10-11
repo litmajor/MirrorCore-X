@@ -1,11 +1,12 @@
 
 import React from 'react';
-import { Shield, AlertTriangle, TrendingDown, Activity } from 'lucide-react';
+import { Shield, AlertTriangle, TrendingDown, Activity, AlertCircle } from 'lucide-react';
 import { useAPI } from '../hooks/useAPI';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { MetricCardSkeleton } from '../components/Skeleton';
 
 const RiskManagement: React.FC = () => {
-  const { data: riskData } = useAPI('/api/risk/analysis');
+  const { data: riskData, loading, error } = useAPI('/api/risk/analysis');
 
   const getRiskLevel = (value: number, threshold: number) => {
     if (value > threshold) return 'text-error';
@@ -21,46 +22,63 @@ const RiskManagement: React.FC = () => {
       </div>
 
       {/* Risk Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">VaR (95%)</h3>
-            <AlertTriangle className="w-5 h-5 text-warning" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {loading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : error ? (
+          <div className="col-span-full brand-card text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Unable to Load Risk Data</h3>
+            <p className="text-txt-secondary">Start the backend server to monitor risk metrics.</p>
           </div>
-          <p className={`text-3xl font-bold ${getRiskLevel(riskData?.var_95 || 0, 3000)}`}>
-            ${riskData?.var_95?.toFixed(2) || '0.00'}
-          </p>
-        </div>
+        ) : (
+          <>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">VaR (95%)</h3>
+                <AlertTriangle className="w-5 h-5 text-warning" />
+              </div>
+              <p className={`text-3xl font-bold ${getRiskLevel(riskData?.var_95 || 0, 3000)}`}>
+                ${riskData?.var_95?.toFixed(2) || '0.00'}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Position Concentration</h3>
-            <Activity className="w-5 h-5 text-brand-cyan" />
-          </div>
-          <p className={`text-3xl font-bold ${getRiskLevel(riskData?.position_concentration || 0, 0.5)}`}>
-            {((riskData?.position_concentration || 0) * 100).toFixed(1)}%
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Position Concentration</h3>
+                <Activity className="w-5 h-5 text-brand-cyan" />
+              </div>
+              <p className={`text-3xl font-bold ${getRiskLevel(riskData?.position_concentration || 0, 0.5)}`}>
+                {((riskData?.position_concentration || 0) * 100).toFixed(1)}%
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Correlation Risk</h3>
-            <TrendingDown className="w-5 h-5 text-brand-purple" />
-          </div>
-          <p className={`text-3xl font-bold ${getRiskLevel(riskData?.correlation_risk || 0, 0.6)}`}>
-            {((riskData?.correlation_risk || 0) * 100).toFixed(1)}%
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Correlation Risk</h3>
+                <TrendingDown className="w-5 h-5 text-brand-purple" />
+              </div>
+              <p className={`text-3xl font-bold ${getRiskLevel(riskData?.correlation_risk || 0, 0.6)}`}>
+                {((riskData?.correlation_risk || 0) * 100).toFixed(1)}%
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Leverage</h3>
-            <Shield className="w-5 h-5 text-success" />
-          </div>
-          <p className={`text-3xl font-bold ${getRiskLevel(riskData?.leverage || 0, 3)}`}>
-            {riskData?.leverage?.toFixed(1)}x
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Leverage</h3>
+                <Shield className="w-5 h-5 text-success" />
+              </div>
+              <p className={`text-3xl font-bold ${getRiskLevel(riskData?.leverage || 0, 3)}`}>
+                {riskData?.leverage?.toFixed(1)}x
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Risk Limits */}
