@@ -52,6 +52,46 @@ const Analytics: React.FC = () => {
         </div>
       </div>
 
+      {/* Equity Curve */}
+      <div className="chart-container">
+        <h3 className="text-lg font-semibold text-white mb-4">Portfolio Equity Curve</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={performance?.equity_curve || []}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="date" stroke="#94a3b8" />
+            <YAxis stroke="#94a3b8" />
+            <Tooltip 
+              contentStyle={{ 
+                backgroundColor: '#1e293b', 
+                border: '1px solid #00D9FF',
+                borderRadius: '8px'
+              }}
+            />
+            <Line type="monotone" dataKey="equity" stroke="#00D9FF" strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Drawdown Chart */}
+      <div className="chart-container">
+        <h3 className="text-lg font-semibold text-white mb-4">Drawdown Analysis</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={performance?.drawdown_curve || []}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="date" stroke="#94a3b8" />
+            <YAxis stroke="#94a3b8" />
+            <Tooltip 
+              contentStyle={{ 
+                backgroundColor: '#1e293b', 
+                border: '1px solid #00D9FF',
+                borderRadius: '8px'
+              }}
+            />
+            <Line type="monotone" dataKey="drawdown" stroke="#FF3366" strokeWidth={2} fill="#FF3366" fillOpacity={0.3} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
       {/* Strategy Performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="chart-container">

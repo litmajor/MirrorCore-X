@@ -652,18 +652,32 @@ async def get_performance_summary():
         
         if trade_analyzer:
             total_pnl = trade_analyzer.get_total_pnl()
-            win_rate = trade_analyzer.get_win_rate() * 100
-            sharpe_ratio = trade_analyzer.get_sharpe_ratio() if hasattr(trade_analyzer, 'get_sharpe_ratio') else 0
+            win_rate = trade_analyzer.risk_metrics.get('win_rate', 0) * 100
+            sharpe_ratio = trade_analyzer.risk_metrics.get('sharpe_ratio', 0)
             dd_stats = trade_analyzer.get_drawdown_stats()
-            max_drawdown = dd_stats.get('max_drawdown', 0) * 100 if dd_stats else 0
+            max_drawdown = abs(dd_stats.get('max_drawdown', 0)) if dd_stats else 0
             total_trades = len(trade_analyzer.trades)
             
             # Calculate additional metrics
-            recent_trades = trade_analyzer.trades[-20:] if trade_analyzer.trades else []
-            recent_pnl = [t.pnl for t in recent_trades]
-            avg_win = np.mean([p for p in recent_pnl if p > 0]) if any(p > 0 for p in recent_pnl) else 0
-            avg_loss = np.mean([p for p in recent_pnl if p < 0]) if any(p < 0 for p in recent_pnl) else 0
-            profit_factor = abs(sum([p for p in recent_pnl if p > 0]) / sum([p for p in recent_pnl if p < 0])) if any(p < 0 for p in recent_pnl) else 0
+            recent_pnl = trade_analyzer.pnl_history[-20:] if trade_analyzer.pnl_history else []
+            avg_win = trade_analyzer.risk_metrics.get('avg_win', 0)
+            avg_loss = trade_analyzer.risk_metrics.get('avg_loss', 0)
+            profit_factor = trade_analyzer.risk_metrics.get('profit_factor', 0)
+            
+            # Build equity curve
+            cumulative_pnl = np.cumsum(trade_analyzer.pnl_history) if trade_analyzer.pnl_history else []
+            equity_curve = [
+                {"date": f"T{i}", "equity": 10000 + pnl} 
+                for i, pnl in enumerate(cumulative_pnl[-50:])
+            ]
+            
+            # Build drawdown curve
+            running_max = np.maximum.accumulate(cumulative_pnl) if len(cumulative_pnl) > 0 else []
+            drawdowns = (cumulative_pnl - running_max) if len(running_max) > 0 else []
+            drawdown_curve = [
+                {"date": f"T{i}", "drawdown": dd} 
+                for i, dd in enumerate(drawdowns[-50:])
+            ]
         else:
             # Fallback to sync bus state
             trades = await sync_bus.get_state('trades') or []
@@ -676,6 +690,8 @@ async def get_performance_summary():
             avg_win = 0
             avg_loss = 0
             profit_factor = 0
+            equity_curve = []
+            drawdown_curve = []
 
         # Get active signals count from scanner data
         active_signals = len([s for s in scanner_data if s.get('composite_score', 0) > 60]) if scanner_data else 0
@@ -690,7 +706,9 @@ async def get_performance_summary():
             "avg_win": float(avg_win),
             "avg_loss": float(avg_loss),
             "profit_factor": float(profit_factor),
-            "system_health": 100.0  # Calculate based on various metrics
+            "system_health": 100.0,
+            "equity_curve": equity_curve,
+            "drawdown_curve": drawdown_curve
         }
     except Exception as e:
         logger.error(f"Error in performance summary: {e}")

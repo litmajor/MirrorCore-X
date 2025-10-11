@@ -1,10 +1,27 @@
 
 import React from 'react';
 import { useAPI } from '../hooks/useAPI';
-import { TrendingUp, TrendingDown, DollarSign, Target, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Target, AlertCircle, PieChart as PieChartIcon } from 'lucide-react';
+import { LineChart, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const Positions: React.FC = () => {
   const { data: positionsData } = useAPI('/api/positions/active');
+  const { data: performanceData } = useAPI('/api/performance/summary');
+
+  // Calculate portfolio allocation data
+  const allocationData = positionsData?.positions?.map((p: any) => ({
+    name: p.symbol,
+    value: Math.abs(p.size * p.current_price)
+  })) || [];
+
+  // Calculate P&L distribution
+  const pnlDistribution = positionsData?.positions?.map((p: any) => ({
+    symbol: p.symbol,
+    pnl: p.pnl,
+    pnl_percent: p.pnl_percent
+  })) || [];
+
+  const COLORS = ['#00D9FF', '#7B2FFF', '#00FF88', '#FFB800', '#FF3366', '#00FFC8', '#FF6B9D'];
 
   return (
     <div className="space-y-6">
@@ -53,6 +70,63 @@ const Positions: React.FC = () => {
           <p className={`text-2xl font-bold ${(positionsData?.avg_return || 0) >= 0 ? 'text-success' : 'text-error'}`}>
             {positionsData?.avg_return?.toFixed(2) || '0.00'}%
           </p>
+        </div>
+      </div>
+
+      {/* Portfolio Visualizations */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Portfolio Allocation */}
+        <div className="chart-container">
+          <h3 className="text-lg font-semibold text-white mb-4">Portfolio Allocation</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={allocationData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={(entry) => `${entry.name}: ${(entry.value / positionsData?.total_value * 100).toFixed(1)}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {allocationData.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#1e293b', 
+                  border: '1px solid #00D9FF',
+                  borderRadius: '8px'
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* P&L Distribution */}
+        <div className="chart-container">
+          <h3 className="text-lg font-semibold text-white mb-4">P&L by Position</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={pnlDistribution}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="symbol" stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#1e293b', 
+                  border: '1px solid #00D9FF',
+                  borderRadius: '8px'
+                }}
+              />
+              <Bar dataKey="pnl" fill="#00D9FF">
+                {pnlDistribution.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#00FF88' : '#FF3366'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
