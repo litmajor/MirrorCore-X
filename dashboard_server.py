@@ -1,4 +1,3 @@
-
 import asyncio
 import json
 import logging
@@ -42,7 +41,7 @@ class DashboardManager:
         self.scanner = None
         self.trade_analyzer = None
         self.exchange = None
-        
+
     async def initialize_system(self):
         """Initialize the trading system"""
         try:
@@ -60,7 +59,7 @@ class DashboardManager:
         except Exception as e:
             logger.error(f"Failed to initialize system: {e}")
             return False
-    
+
     async def run_simulation_loop(self):
         """Main simulation loop"""
         self.running = True
@@ -75,26 +74,44 @@ class DashboardManager:
                 await self.sync_bus.tick()
                 tick_count += 1
                 # Get current state
-                # Prepare dashboard data
+                # Get real market data from scanner
+                scanner_results = None
+                if self.scanner:
+                    try:
+                        scanner_results = await self.scanner.scan_market(timeframe='1h', top_n=50)
+                    except Exception as e:
+                        logger.error(f"Scanner error: {e}")
+
+                # Prepare dashboard data with real scanner results
                 dashboard_data = {
                     'tick_count': tick_count,
                     'timestamp': datetime.now().isoformat(),
-                    'market_data': await self.sync_bus.get_state('market_data'),
-                    'scanner_data': await self.sync_bus.get_state('scanner_data'),
-                    'emotional_state': await self.sync_bus.get_state('emotional_state'),
-                    'strategy_grades': await self.sync_bus.get_state('strategy_grades'),
-                    'system_performance': await self.sync_bus.get_state('system_performance'),
-                    'oracle_directives': await self.sync_bus.get_state('oracle_directives'),
-                    'trades': await self.sync_bus.get_state('trades')
+                    'market_data': scanner_results.to_dict('records') if scanner_results is not None and not scanner_results.empty else [],
+                    'scanner_data': await self.sync_bus.get_state('scanner_data') if self.sync_bus else {},
+                    'emotional_state': await self.sync_bus.get_state('emotional_state') if self.sync_bus else {},
+                    'strategy_grades': await self.sync_bus.get_state('strategy_grades') if self.sync_bus else {},
+                    'system_performance': await self.sync_bus.get_state('system_performance') if self.sync_bus else {},
+                    'oracle_directives': await self.sync_bus.get_state('oracle_directives') if self.sync_bus else {},
+                    'trades': await self.sync_bus.get_state('trades') if self.sync_bus else []
                 }
+
                 # Emit to connected clients
                 socketio.emit('dashboard_update', dashboard_data)
+
+                # Also emit market overview
+                if scanner_results is not None and not scanner_results.empty:
+                    market_overview = {
+                        'total_volume': float(scanner_results['average_volume_usd'].sum()),
+                        'market_sentiment': float(len(scanner_results[scanner_results['signal'].isin(['Strong Buy', 'Buy'])]) / len(scanner_results)),
+                        'active_signals': int(len(scanner_results[scanner_results['composite_score'] > 70]))
+                    }
+                    socketio.emit('market_overview', market_overview)
                 # Wait before next tick
                 await asyncio.sleep(1.0)
             except Exception as e:
                 logger.error(f"Error in simulation loop: {e}")
                 await asyncio.sleep(1.0)
-    
+
     def stop_simulation(self):
         """Stop the simulation"""
         self.running = False
@@ -132,15 +149,15 @@ def handle_start_system():
                 asyncio.set_event_loop(loop)
                 loop.run_until_complete(dashboard_manager.initialize_system())
                 loop.run_until_complete(dashboard_manager.run_simulation_loop())
-            
+
             thread = threading.Thread(target=run_async_loop)
             thread.daemon = True
             thread.start()
-            
+
             emit('system_status', {'status': 'starting', 'message': 'System initialization in progress'})
         else:
             emit('system_status', {'status': 'already_running', 'message': 'System is already running'})
-            
+
     except Exception as e:
         logger.error(f"Error starting system: {e}")
         emit('system_status', {'status': 'error', 'message': str(e)})

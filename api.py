@@ -220,52 +220,273 @@ async def get_metrics():
 
 @app.get("/api/market/overview")
 async def get_market_overview():
-    """Get market overview data"""
-    return {
-        "total_volume": 1500000000,
-        "top_movers": [],
-        "market_sentiment": 0.65,
-        "volatility_index": 0.45
-    }
+    """Get market overview data from latest scan results"""
+    try:
+        # Find latest scan results
+        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_daily_") and f.endswith(".csv")]
+        if not csv_files:
+            return {"error": "No scan results available"}
+        
+        latest_csv = max(csv_files, key=lambda x: datetime.strptime(x.split('_')[-2] + '_' + x.split('_')[-1].replace('.csv', ''), '%Y%m%d_%H%M%S'))
+        csv_path = os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_csv)
+        
+        df = pd.read_csv(csv_path)
+        
+        # Calculate real market metrics
+        total_volume = df['average_volume_usd'].sum() if 'average_volume_usd' in df else 0
+        
+        # Top movers by momentum
+        top_movers = []
+        if 'momentum_short' in df and 'symbol' in df:
+            top_df = df.nlargest(5, 'momentum_short')[['symbol', 'momentum_short', 'price', 'composite_score']]
+            top_movers = top_df.to_dict('records')
+        
+        # Market sentiment from signals
+        bullish_count = len(df[df['signal'].isin(['Strong Buy', 'Buy', 'Weak Buy'])]) if 'signal' in df else 0
+        total_count = len(df)
+
+
+@app.get("/api/scanner/realtime")
+async def get_realtime_scanner_data():
+    """Get real-time scanner data for live updates"""
+    try:
+        # Import scanner dynamically
+        import ccxt.async_support as ccxt
+        from scanner import MomentumScanner, get_dynamic_config
+        
+        # Initialize scanner
+        exchange = ccxt.binance({'enableRateLimit': True})
+        config = get_dynamic_config('crypto')
+        scanner = MomentumScanner(exchange, config, market_type='crypto', quote_currency='USDT')
+        
+        # Quick scan
+        results = await scanner.scan_market(timeframe='1h', top_n=20)
+        await exchange.close()
+        
+        if results.empty:
+            return {"data": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+        
+        return {
+            "data": results.to_dict('records'),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "count": len(results)
+        }
+    except Exception as e:
+        logger.error(f"Real-time scanner error: {e}")
+        return {"error": str(e), "data": []}
+
+@app.websocket("/ws/scanner")
+async def websocket_scanner(websocket):
+    """WebSocket endpoint for real-time scanner updates"""
+    await websocket.accept()
+    
+    import ccxt.async_support as ccxt
+    from scanner import MomentumScanner, get_dynamic_config
+    
+    exchange = None
+    try:
+        exchange = ccxt.binance({'enableRateLimit': True})
+        config = get_dynamic_config('crypto')
+        scanner = MomentumScanner(exchange, config, market_type='crypto', quote_currency='USDT')
+        
+        while True:
+            try:
+                # Scan market
+                results = await scanner.scan_market(timeframe='1h', top_n=20)
+                
+                # Send updates
+                if not results.empty:
+                    await websocket.send_json({
+                        "type": "scanner_update",
+                        "data": results.to_dict('records'),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                
+                await asyncio.sleep(60)  # Update every minute
+            except Exception as e:
+                logger.error(f"WebSocket scan error: {e}")
+                await asyncio.sleep(5)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        if exchange:
+            await exchange.close()
+
+
+        market_sentiment = bullish_count / total_count if total_count > 0 else 0.5
+        
+        # Volatility from volume ratios
+        volatility_index = df['volume_ratio'].std() if 'volume_ratio' in df else 0.5
+        
+        return {
+            "total_volume": float(total_volume),
+            "top_movers": top_movers,
+            "market_sentiment": float(market_sentiment),
+            "volatility_index": float(volatility_index),
+            "total_symbols": int(total_count),
+            "last_updated": latest_csv.split('_')[-2] + '_' + latest_csv.split('_')[-1].replace('.csv', '')
+        }
+    except Exception as e:
+        logger.error(f"Error in market overview: {e}")
+        return {"error": str(e)}
 
 @app.get("/api/performance/summary")
 async def get_performance_summary():
-    """Get performance summary"""
-    return {
-        "total_pnl": 15420.50,
-        "win_rate": 68.5,
-        "sharpe_ratio": 1.85,
-        "max_drawdown": 8.2,
-        "total_trades": 245
-    }
+    """Get performance summary from backtest results"""
+    try:
+        # Try to load backtest results
+        backtest_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("backtest_") and f.endswith(".csv")]
+        
+        if backtest_files:
+            latest_backtest = max(backtest_files)
+            df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_backtest))
+            
+            total_pnl = df['total_return'].sum() if 'total_return' in df else 0
+            win_rate = df['win_rate'].mean() if 'win_rate' in df else 0
+            sharpe_ratio = df['sharpe_ratio'].mean() if 'sharpe_ratio' in df else 0
+            max_drawdown = df['max_drawdown'].max() if 'max_drawdown' in df else 0
+            total_trades = len(df)
+        else:
+            # Fallback to scan results for estimates
+            csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
+            if csv_files:
+                df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
+                total_pnl = df['avg_return_7d'].sum() if 'avg_return_7d' in df else 0
+                win_rate = len(df[df['composite_score'] > 70]) / len(df) * 100 if len(df) > 0 else 0
+                sharpe_ratio = 0
+                max_drawdown = 0
+                total_trades = len(df)
+            else:
+                raise Exception("No performance data available")
+        
+        return {
+            "total_pnl": float(total_pnl),
+            "win_rate": float(win_rate),
+            "sharpe_ratio": float(sharpe_ratio),
+            "max_drawdown": float(max_drawdown),
+            "total_trades": int(total_trades)
+        }
+    except Exception as e:
+        logger.error(f"Error in performance summary: {e}")
+        return {"error": str(e)}
 
 @app.get("/api/strategies")
 async def get_strategies():
-    """Get all active strategies"""
-    return {
-        "strategies": [
-            {"name": "Momentum Scanner", "status": "active", "pnl": 5420.30, "win_rate": 72.5},
-            {"name": "Mean Reversion", "status": "active", "pnl": 3200.15, "win_rate": 65.8},
-            {"name": "Breakout Trader", "status": "paused", "pnl": 1850.40, "win_rate": 58.3}
-        ]
-    }
+    """Get all active strategies from strategy trainer"""
+    try:
+        strategies = []
+        
+        # Load scan results to check which strategies are active
+        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
+        if csv_files:
+            df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
+            
+            # Momentum Scanner strategy
+            momentum_signals = df[df['momentum_short'] > 0.01] if 'momentum_short' in df else pd.DataFrame()
+            strategies.append({
+                "name": "Momentum Scanner",
+                "status": "active",
+                "pnl": float(momentum_signals['avg_return_7d'].sum() if not momentum_signals.empty and 'avg_return_7d' in momentum_signals else 0),
+                "win_rate": float(len(momentum_signals[momentum_signals['composite_score'] > 70]) / len(momentum_signals) * 100 if len(momentum_signals) > 0 else 0),
+                "signals": int(len(momentum_signals))
+            })
+            
+            # Mean Reversion strategy
+            reversion_signals = df[df.get('reversion_candidate', False) == True] if 'reversion_candidate' in df else pd.DataFrame()
+            strategies.append({
+                "name": "Mean Reversion",
+                "status": "active" if len(reversion_signals) > 0 else "paused",
+                "pnl": float(reversion_signals['avg_return_7d'].sum() if not reversion_signals.empty and 'avg_return_7d' in reversion_signals else 0),
+                "win_rate": float(len(reversion_signals[reversion_signals.get('reversion_probability', 0) > 0.7]) / len(reversion_signals) * 100 if len(reversion_signals) > 0 else 0),
+                "signals": int(len(reversion_signals))
+            })
+            
+            # Cluster Momentum strategy
+            cluster_signals = df[df.get('cluster_validated', False) == True] if 'cluster_validated' in df else pd.DataFrame()
+            strategies.append({
+                "name": "Cluster Momentum",
+                "status": "active" if len(cluster_signals) > 0 else "paused",
+                "pnl": float(cluster_signals['avg_return_7d'].sum() if not cluster_signals.empty and 'avg_return_7d' in cluster_signals else 0),
+                "win_rate": float(len(cluster_signals[cluster_signals['composite_score'] > 70]) / len(cluster_signals) * 100 if len(cluster_signals) > 0 else 0),
+                "signals": int(len(cluster_signals))
+            })
+        
+        return {"strategies": strategies}
+    except Exception as e:
+        logger.error(f"Error getting strategies: {e}")
+        return {"strategies": []}
 
 @app.get("/api/signals/active")
 async def get_active_signals():
     """Get currently active trading signals"""
-    return {
-        "signals": []
-    }
+    try:
+        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_daily_") and f.endswith(".csv")]
+        if not csv_files:
+            return {"signals": []}
+        
+        latest_csv = max(csv_files, key=lambda x: datetime.strptime(x.split('_')[-2] + '_' + x.split('_')[-1].replace('.csv', ''), '%Y%m%d_%H%M%S'))
+        df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_csv))
+        
+        # Filter for strong signals
+        strong_signals = df[
+            (df['composite_score'] > 70) | 
+            (df.get('cluster_validated', False) == True) |
+            (df.get('reversion_probability', 0) > 0.7)
+        ] if len(df) > 0 else pd.DataFrame()
+        
+        signals = []
+        for _, row in strong_signals.head(20).iterrows():
+            signals.append({
+                "symbol": row.get('symbol', ''),
+                "signal": row.get('signal', 'NEUTRAL'),
+                "type": "momentum" if row.get('enhanced_momentum_score', 0) > 0.02 else "reversion" if row.get('reversion_candidate', False) else "neutral",
+                "strength": float(row.get('composite_score', 0)),
+                "price": float(row.get('price', 0)),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        return {"signals": signals}
+    except Exception as e:
+        logger.error(f"Error getting active signals: {e}")
+        return {"signals": []}
 
 @app.get("/api/risk/analysis")
 async def get_risk_analysis():
     """Get risk analysis data"""
-    return {
-        "var_95": 2500.00,
-        "position_concentration": 0.35,
-        "correlation_risk": 0.42,
-        "leverage": 2.5
-    }
+    try:
+        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
+        if not csv_files:
+            return {"error": "No data available"}
+        
+        df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
+        
+        # Calculate risk metrics
+        portfolio_volatility = df['volume_ratio'].std() if 'volume_ratio' in df else 0
+        
+        # VaR calculation (simplified)
+        returns = df['avg_return_7d'] / 100 if 'avg_return_7d' in df else pd.Series([0])
+        var_95 = float(abs(returns.quantile(0.05)) * 10000) if len(returns) > 0 else 0
+        
+        # Position concentration
+        top_position = df['average_volume_usd'].max() if 'average_volume_usd' in df else 0
+        total_volume = df['average_volume_usd'].sum() if 'average_volume_usd' in df else 1
+        position_concentration = float(top_position / total_volume) if total_volume > 0 else 0
+        
+        # Correlation risk (simplified based on volatility regime)
+        high_vol_count = len(df[df.get('volatility_regime', 'normal') == 'high']) if 'volatility_regime' in df else 0
+        correlation_risk = float(high_vol_count / len(df)) if len(df) > 0 else 0
+        
+        return {
+            "var_95": var_95,
+            "position_concentration": position_concentration,
+            "correlation_risk": correlation_risk,
+            "leverage": 1.0,
+            "portfolio_volatility": float(portfolio_volatility),
+            "risk_score": float((position_concentration + correlation_risk + portfolio_volatility) / 3 * 100)
+        }
+    except Exception as e:
+        logger.error(f"Error in risk analysis: {e}")
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

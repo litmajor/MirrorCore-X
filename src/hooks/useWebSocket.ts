@@ -18,6 +18,8 @@ export const useWebSocket = (url: string) => {
     socketInstance.on('connect', () => {
       setIsConnected(true);
       console.log('WebSocket connected');
+      // Request initial data
+      socketInstance.emit('get_system_state');
     });
 
     socketInstance.on('disconnect', () => {
@@ -27,6 +29,14 @@ export const useWebSocket = (url: string) => {
 
     socketInstance.on('dashboard_update', (newData) => {
       setData(newData);
+    });
+
+    socketInstance.on('market_overview', (marketData) => {
+      setData((prev: any) => ({ ...prev, marketOverview: marketData }));
+    });
+
+    socketInstance.on('system_state', (stateData) => {
+      setData((prev: any) => ({ ...prev, systemState: stateData }));
     });
 
     setSocket(socketInstance);
