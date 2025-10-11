@@ -6,14 +6,17 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 3000,
+    port: 5000,
+    hmr: {
+      clientPort: 443
+    },
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:8000',
         changeOrigin: true
       },
       '/socket.io': {
-        target: 'http://0.0.0.0:5000',
+        target: 'http://0.0.0.0:8000',
         ws: true
       }
     }
