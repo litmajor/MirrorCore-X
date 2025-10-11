@@ -17,6 +17,7 @@ import AgentMonitor from './pages/AgentMonitor';
 import Audit from './pages/Audit';
 import Positions from './pages/Positions';
 import TradeHistory from './pages/TradeHistory';
+import UXDemo from './pages/UXDemo';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -43,6 +44,7 @@ function App() {
               <Route path="/backtesting" element={<Backtesting />} />
               <Route path="/agent-monitor" element={<AgentMonitor />} />
               <Route path="/audit" element={<Audit />} />
+              <Route path="/ux-demo" element={<UXDemo />} />
             </Routes>
           </Layout>
         </Router>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, TrendingUp, BarChart3, Layers, Shield, 
-  Settings, Menu, X, Bell, User, Brain, Target, History, Sun, Moon 
+  Settings, Menu, X, Bell, User, Brain, Target, History, Sun, Moon, Sparkles 
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -33,6 +33,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/ux-demo', icon: Sparkles, label: 'UX Demo' },
     { path: '/trading', icon: TrendingUp, label: 'Trading' },
     { path: '/positions', icon: Target, label: 'Positions' },
     { path: '/trade-history', icon: History, label: 'Trade History' },

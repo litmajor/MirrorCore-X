@@ -50,6 +50,14 @@ Preferred communication style: Simple, everyday language.
 - Glass morphism cards with cyan/purple glows
 - Neon text effects and gradient backgrounds
 
+**UX Enhancements** (Latest Update - October 2025):
+- **Loading Skeletons**: Shimmer animation components for all async data (MetricCardSkeleton, ChartSkeleton, TableRowSkeleton, CardSkeleton)
+- **Toast Notifications**: Real-time trade notifications using Sonner library with custom glass morphism styling
+- **Dark/Light Theme Toggle**: Persistent theme switching with localStorage, optimized for both modes
+- **Mobile Responsive**: Touch-friendly navigation, collapsible sidebar with overlay, responsive grids (1/2/4 columns), optimized for tablets and phones
+- **Trade Notification Hook**: Automatic WebSocket-driven notifications for new trades with P&L display
+- See `docs/UX_ENHANCEMENTS.md` for complete implementation guide
+
 ## System Architecture
 
 ### Core Coordination Layer: HighPerformanceSyncBus
