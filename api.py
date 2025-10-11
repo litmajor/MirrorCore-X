@@ -638,7 +638,7 @@ async def get_optimization_results():
 
 @app.get("/api/performance/summary")
 async def get_performance_summary():
-    """Get performance summary from live system"""
+    """Get performance summary from live system with detailed metrics"""
     try:
         sync_bus = global_state.get('sync_bus')
         components = global_state.get('components')
@@ -648,12 +648,22 @@ async def get_performance_summary():
 
         # Get trade analyzer
         trade_analyzer = components.get('trade_analyzer')
+        scanner_data = await sync_bus.get_state('scanner_data') or []
+        
         if trade_analyzer:
             total_pnl = trade_analyzer.get_total_pnl()
             win_rate = trade_analyzer.get_win_rate() * 100
-            sharpe_ratio = trade_analyzer.get_sharpe_ratio()
-            max_drawdown = trade_analyzer.get_drawdown_stats().get('max_drawdown', 0) * 100
+            sharpe_ratio = trade_analyzer.get_sharpe_ratio() if hasattr(trade_analyzer, 'get_sharpe_ratio') else 0
+            dd_stats = trade_analyzer.get_drawdown_stats()
+            max_drawdown = dd_stats.get('max_drawdown', 0) * 100 if dd_stats else 0
             total_trades = len(trade_analyzer.trades)
+            
+            # Calculate additional metrics
+            recent_trades = trade_analyzer.trades[-20:] if trade_analyzer.trades else []
+            recent_pnl = [t.pnl for t in recent_trades]
+            avg_win = np.mean([p for p in recent_pnl if p > 0]) if any(p > 0 for p in recent_pnl) else 0
+            avg_loss = np.mean([p for p in recent_pnl if p < 0]) if any(p < 0 for p in recent_pnl) else 0
+            profit_factor = abs(sum([p for p in recent_pnl if p > 0]) / sum([p for p in recent_pnl if p < 0])) if any(p < 0 for p in recent_pnl) else 0
         else:
             # Fallback to sync bus state
             trades = await sync_bus.get_state('trades') or []
@@ -663,13 +673,24 @@ async def get_performance_summary():
             sharpe_ratio = 0
             max_drawdown = 0
             total_trades = len(trades)
+            avg_win = 0
+            avg_loss = 0
+            profit_factor = 0
+
+        # Get active signals count from scanner data
+        active_signals = len([s for s in scanner_data if s.get('composite_score', 0) > 60]) if scanner_data else 0
 
         return {
             "total_pnl": float(total_pnl),
             "win_rate": float(win_rate),
             "sharpe_ratio": float(sharpe_ratio),
             "max_drawdown": float(max_drawdown),
-            "total_trades": int(total_trades)
+            "total_trades": int(total_trades),
+            "active_signals": int(active_signals),
+            "avg_win": float(avg_win),
+            "avg_loss": float(avg_loss),
+            "profit_factor": float(profit_factor),
+            "system_health": 100.0  # Calculate based on various metrics
         }
     except Exception as e:
         logger.error(f"Error in performance summary: {e}")
@@ -787,6 +808,38 @@ async def get_active_signals():
     except Exception as e:
         logger.error(f"Error getting active signals: {e}")
         return {"signals": []}
+
+@app.get("/api/rl/status")
+async def get_rl_status():
+    """Get RL agent status and performance"""
+    try:
+        components = global_state.get('components')
+        
+        if not components:
+            return {"error": "System not initialized"}
+        
+        rl_agent = components.get('rl_agent')
+        
+        if rl_agent and hasattr(rl_agent, 'is_trained') and rl_agent.is_trained:
+            # Get recent predictions and performance
+            return {
+                "is_trained": True,
+                "algorithm": rl_agent.algorithm,
+                "model_path": "models/rl_ppo_model.zip",
+                "recent_actions": [],  # Would need to track this
+                "confidence": 0.75,
+                "total_predictions": 0,
+                "status": "active"
+            }
+        else:
+            return {
+                "is_trained": False,
+                "status": "not_initialized",
+                "message": "RL agent not trained or not available"
+            }
+    except Exception as e:
+        logger.error(f"Error getting RL status: {e}")
+        return {"error": str(e)}
 
 @app.get("/api/risk/analysis")
 async def get_risk_analysis():

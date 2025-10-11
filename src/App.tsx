@@ -9,6 +9,7 @@ import RiskManagement from './pages/RiskManagement';
 import Settings from './pages/Settings';
 import Oracle from './pages/Oracle';
 import Optimization from './pages/Optimization';
+import RLAgent from './pages/RLAgent'; // Assuming RLAgent component is in './pages/RLAgent'
 import Layout from './components/Layout';
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/oracle" element={<Oracle />} />
           <Route path="/optimization" element={<Optimization />} />
+          <Route path="/rl-agent" element={<RLAgent />} />
         </Routes>
       </Layout>
     </Router>

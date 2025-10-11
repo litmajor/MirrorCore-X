@@ -1,9 +1,8 @@
-
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, TrendingUp, BarChart3, Layers, Shield, 
-  Settings, Menu, X, Bell, User 
+  Settings, Menu, X, Bell, User, Brain 
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -21,6 +20,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/strategies', icon: Layers, label: 'Strategies' },
     { path: '/risk', icon: Shield, label: 'Risk Management' },
     { path: '/settings', icon: Settings, label: 'Settings' },
+    { path: '/rl-agent', icon: Brain, label: 'RL Agent' },
   ];
 
   return (
@@ -39,7 +39,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               MIRRORCORE-X
             </h1>
           </div>
-          
+
           <div className="flex items-center space-x-4">
             <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors relative">
               <Bell className="w-5 h-5 text-brand-cyan" />
@@ -62,7 +62,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
-            
+
             return (
               <Link
                 key={item.path}

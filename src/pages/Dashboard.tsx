@@ -14,19 +14,25 @@ const Dashboard: React.FC = () => {
     totalPnL: 0,
     winRate: 0,
     activeSignals: 0,
-    systemHealth: 100
+    systemHealth: 100,
+    sharpeRatio: 0,
+    maxDrawdown: 0,
+    profitFactor: 0
   });
 
   useEffect(() => {
-    if (wsData) {
+    if (performance) {
       setMetrics({
         totalPnL: performance?.total_pnl || 0,
         winRate: performance?.win_rate || 0,
-        activeSignals: wsData.oracle_directives?.directives || wsData.scanner_data?.length || 0,
-        systemHealth: 100
+        activeSignals: performance?.active_signals || 0,
+        systemHealth: performance?.system_health || 100,
+        sharpeRatio: performance?.sharpe_ratio || 0,
+        maxDrawdown: performance?.max_drawdown || 0,
+        profitFactor: performance?.profit_factor || 0
       });
     }
-  }, [wsData, performance]);
+  }, [performance]);
 
   const MetricCard = ({ title, value, change, icon: Icon, trend }: any) => (
     <div className="metric-card">
@@ -68,7 +74,7 @@ const Dashboard: React.FC = () => {
           title="Total P&L"
           value={`$${metrics.totalPnL.toFixed(2)}`}
           change={5.2}
-          trend="up"
+          trend={metrics.totalPnL >= 0 ? "up" : "down"}
           icon={DollarSign}
         />
         <MetricCard
@@ -84,12 +90,26 @@ const Dashboard: React.FC = () => {
           icon={Activity}
         />
         <MetricCard
-          title="System Health"
-          value={`${metrics.systemHealth.toFixed(0)}%`}
-          change={-0.5}
-          trend="down"
-          icon={AlertTriangle}
+          title="Sharpe Ratio"
+          value={metrics.sharpeRatio.toFixed(2)}
+          icon={TrendingUp}
         />
+      </div>
+
+      {/* Additional Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="metric-card">
+          <h3 className="text-txt-secondary text-sm font-medium mb-2">Max Drawdown</h3>
+          <p className="text-2xl font-bold text-error">{metrics.maxDrawdown.toFixed(1)}%</p>
+        </div>
+        <div className="metric-card">
+          <h3 className="text-txt-secondary text-sm font-medium mb-2">Profit Factor</h3>
+          <p className="text-2xl font-bold text-success">{metrics.profitFactor.toFixed(2)}</p>
+        </div>
+        <div className="metric-card">
+          <h3 className="text-txt-secondary text-sm font-medium mb-2">System Health</h3>
+          <p className="text-2xl font-bold text-white">{metrics.systemHealth.toFixed(0)}%</p>
+        </div>
       </div>
 
       {/* Charts */}
