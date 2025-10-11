@@ -1,17 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, TrendingUp, BarChart3, Layers, Shield, 
-  Settings, Menu, X, Bell, User, Brain, Target, History 
+  Settings, Menu, X, Bell, User, Brain, Target, History, Sun, Moon 
 } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const location = useLocation();
+  const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+      if (window.innerWidth >= 768) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -45,21 +63,42 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </h1>
           </div>
 
-          <div className="flex items-center space-x-4">
-            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors relative">
+          <div className="flex items-center space-x-2 md:space-x-4">
+            <button
+              onClick={toggleTheme}
+              className="p-2 hover:bg-bg-surface rounded-lg transition-colors"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-5 h-5 text-brand-cyan" />
+              ) : (
+                <Moon className="w-5 h-5 text-brand-cyan" />
+              )}
+            </button>
+            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors relative hidden sm:block">
               <Bell className="w-5 h-5 text-brand-cyan" />
               <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
             </button>
-            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors">
+            <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors hidden sm:block">
               <User className="w-5 h-5 text-brand-cyan" />
             </button>
           </div>
         </div>
       </div>
 
+      {/* Mobile Overlay */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 top-16"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
       <div
-        className={`fixed left-0 top-16 bottom-0 w-64 glass border-r border-brand-cyan/20 transition-transform duration-300 z-40 custom-scrollbar ${
+        className={`fixed left-0 top-16 bottom-0 w-64 glass border-r border-brand-cyan/20 transition-transform duration-300 ${
+          isMobile ? 'z-40' : 'z-30'
+        } custom-scrollbar overflow-y-auto ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -72,6 +111,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Link
                 key={item.path}
                 to={item.path}
+                onClick={() => isMobile && setSidebarOpen(false)}
                 className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-all ${
                   isActive
                     ? 'nav-active'
@@ -89,10 +129,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Main Content */}
       <div
         className={`pt-16 transition-all duration-300 ${
-          sidebarOpen ? 'pl-64' : 'pl-0'
+          sidebarOpen && !isMobile ? 'md:pl-64' : 'pl-0'
         }`}
       >
-        <div className="p-6 custom-scrollbar">
+        <div className="p-4 md:p-6 custom-scrollbar">
           {children}
         </div>
       </div>

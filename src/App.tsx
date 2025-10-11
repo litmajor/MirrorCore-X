@@ -1,5 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Dashboard from './pages/Dashboard';
 import Trading from './pages/Trading';
 import Analytics from './pages/Analytics';
@@ -21,28 +23,43 @@ import ErrorBoundary from './components/ErrorBoundary';
 function App() {
   return (
     <ErrorBoundary>
-      <Router>
-        <Layout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/trading" element={<Trading />} />
-          <Route path="/positions" element={<Positions />} />
-          <Route path="/trade-history" element={<TradeHistory />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/technical" element={<TechnicalAnalysis />} />
-          <Route path="/strategies" element={<Strategies />} />
-          <Route path="/risk" element={<RiskManagement />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/oracle" element={<Oracle />} />
-          <Route path="/optimization" element={<Optimization />} />
-          <Route path="/rl-agent" element={<RLAgent />} />
-          <Route path="/backtesting" element={<Backtesting />} />
-          <Route path="/agent-monitor" element={<AgentMonitor />} />
-          <Route path="/audit" element={<Audit />} />
-        </Routes>
-      </Layout>
-    </Router>
+      <ThemeProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/trading" element={<Trading />} />
+              <Route path="/positions" element={<Positions />} />
+              <Route path="/trade-history" element={<TradeHistory />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/technical" element={<TechnicalAnalysis />} />
+              <Route path="/strategies" element={<Strategies />} />
+              <Route path="/risk" element={<RiskManagement />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/oracle" element={<Oracle />} />
+              <Route path="/optimization" element={<Optimization />} />
+              <Route path="/rl-agent" element={<RLAgent />} />
+              <Route path="/backtesting" element={<Backtesting />} />
+              <Route path="/agent-monitor" element={<AgentMonitor />} />
+              <Route path="/audit" element={<Audit />} />
+            </Routes>
+          </Layout>
+        </Router>
+        <Toaster 
+          theme="dark" 
+          position="top-right"
+          toastOptions={{
+            className: 'glass border-brand-cyan/30',
+            style: {
+              background: 'rgba(20, 27, 61, 0.9)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(0, 217, 255, 0.2)',
+              color: '#fff',
+            },
+          }}
+        />
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

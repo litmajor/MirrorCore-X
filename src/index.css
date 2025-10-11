@@ -146,4 +146,79 @@
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
   }
+
+  /* Shimmer animation for skeletons */
+  .animate-shimmer {
+    background: linear-gradient(90deg, 
+      rgba(255, 255, 255, 0.05) 25%, 
+      rgba(0, 217, 255, 0.1) 50%, 
+      rgba(255, 255, 255, 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
+
+/* Light Theme Styles */
+.light-theme {
+  --color-bg-primary: #F5F7FA;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-surface: #E5E9F0;
+  --color-txt-primary: #1A1F3A;
+  --color-txt-secondary: #6B7299;
+}
+
+.light-theme body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+.light-theme .glass {
+  @apply bg-white/80 backdrop-blur-xl border-brand-cyan/30;
+}
+
+.light-theme .brand-card {
+  @apply bg-white/90 border-brand-cyan/40;
+}
+
+.light-theme .chart-container {
+  @apply bg-white/90 border-brand-cyan/40;
+}
+
+.light-theme .metric-card {
+  @apply bg-white/90 border-brand-cyan/40;
+}
+
+.light-theme .nav-inactive {
+  @apply text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+}
+
+.light-theme .page-title,
+.light-theme .gradient-text {
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-brand-cyan to-brand-purple;
+}
+
+.light-theme .bg-gradient-secondary {
+  @apply bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50;
+}
+
+.light-theme .text-txt-secondary {
+  @apply text-gray-600;
+}
+
+.light-theme .text-txt-primary {
+  @apply text-gray-900;
+}
+
+.light-theme .animate-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(0, 0, 0, 0.03) 25%, 
+    rgba(0, 217, 255, 0.15) 50%, 
+    rgba(0, 0, 0, 0.03) 75%
+  );
+  background-size: 200% 100%;
 }
