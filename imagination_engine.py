@@ -1258,7 +1258,7 @@ class ImaginationEngine:
         # Survival rate issues
         poor_survival = [name for name, scores in robustness_scores.items() 
                         if scores.get('survival_rate', 1.0) < 0.8]
-        if poor_survival:
+        if len(poor_survival) > 0:
             recommendations.append(f"Reduce catastrophic risk for {len(poor_survival)} strategies")
             
         if not recommendations:
@@ -1300,20 +1300,20 @@ async def main():
     class MockStrategyTrainer:
         def __init__(self):
             class Strategy:
-                def get_parameters(self, *args, **kwargs):
+                def get_parameters(self):
                     return {'rsi_threshold': 70, 'stop_loss': 0.02}
-                def update_parameter(self, name, value, *args, **kwargs):
+                def update_parameter(self, name, value):
                     pass
-                def update(self, data, *args, **kwargs):
+                def update(self, data):
                     # Simulate a signal output for testing
                     return {'signal': 'Buy', 'confidence': 0.7}
 
             class MAStrategy:
-                def get_parameters(self, *args, **kwargs):
+                def get_parameters(self):
                     return {'ma_period': 20, 'position_size': 0.1}
-                def update_parameter(self, name, value, *args, **kwargs):
+                def update_parameter(self, name, value):
                     pass
-                def update(self, data, *args, **kwargs):
+                def update(self, data):
                     return {'signal': 'Hold', 'confidence': 0.5}
 
             self.strategies = {
@@ -1326,7 +1326,7 @@ async def main():
         
     # Sample market data
     sample_data = [
-        {'price': 100.0, 'volume': 1000, 'timestamp': time.time() - i * 60}
+        {'price': 100.0 + i, 'volume': 1000 + i*10, 'timestamp': time.time() - i * 60}
         for i in range(100, 0, -1)
     ]
     
@@ -1345,6 +1345,26 @@ async def main():
         print(f"Strategies analyzed: {results.get('strategies_analyzed', 0)}")
         print(f"Scenarios tested: {results.get('scenarios_tested', 0)}")
         print(f"Summary: {results.get('summary', {})}")
+        
+        # Pretty print robustness scores
+        print("\nRobustness Scores:")
+        for strategy, scores in results.get('robustness_scores', {}).items():
+            print(f"{strategy}:")
+            for key, value in scores.items():
+                print(f"  - {key}: {value:.3f}")
+        
+        # Vulnerabilities
+        print("\nVulnerabilities:")
+        for strategy, vulns in results.get('vulnerabilities', {}).items():
+            if vulns:
+                print(f"{strategy}:")
+                for vuln in vulns:
+                    print(f"  - {vuln}")
+        
+        # Optimizations
+        print("\nOptimizations:")
+        for opt in results.get('optimizations', []):
+            print(f"{opt.strategy_name}.{opt.parameter_name}: {opt.current_value} -> {opt.suggested_value} (confidence: {opt.confidence:.2f})")
         
         return results
     else:

@@ -33,52 +33,52 @@ class ARCH_CTRL:
         self.intervention_count = 0
     
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhanced update method compatible with SyncBus architecture"""
-        # Process commands first
+        """Enhanced update method compatible with SyncBus architecture. Now robust to missing/malformed fields."""
         await self._process_commands()
-        
         if self.is_paused:
             return {'status': 'paused', 'emotional_state': self.get_emotional_state()}
-        
         try:
-            # Extract relevant data for emotional processing
+            # Defensive extraction of market volatility
             market_volatility = 0.0
             loss_occurred = False
             architect_override = self.override
-            
-            # Process market data for volatility
-            if 'market_data' in data:
-                market_data = data['market_data']
-                if isinstance(market_data, list) and market_data:
-                    latest_data = market_data[-1]
-                    market_volatility = latest_data.get('volatility', 0.0)
-                elif isinstance(market_data, dict):
-                    market_volatility = market_data.get('volatility', 0.0)
-            
-            # Check for losses in trade data
-            if 'trades' in data:
-                trades = data['trades']
-                if isinstance(trades, list):
-                    for trade in trades:
-                        if isinstance(trade, dict) and trade.get('pnl', 0) < 0:
+            # Market data
+            market_data = data.get('market_data', None)
+            if isinstance(market_data, list) and market_data:
+                latest_data = market_data[-1]
+                if isinstance(latest_data, dict):
+                    market_volatility = float(latest_data.get('volatility', 0.0) or 0.0)
+            elif isinstance(market_data, dict):
+                market_volatility = float(market_data.get('volatility', 0.0) or 0.0)
+            # Trades
+            trades = data.get('trades', None)
+            if isinstance(trades, list):
+                for trade in trades:
+                    if isinstance(trade, dict):
+                        pnl = trade.get('pnl', 0)
+                        try:
+                            pnl_val = float(pnl)
+                        except Exception:
+                            pnl_val = 0.0
+                        if pnl_val < 0:
                             loss_occurred = True
                             break
-                elif isinstance(trades, dict) and trades.get('pnl', 0) < 0:
+            elif isinstance(trades, dict):
+                try:
+                    pnl_val = float(trades.get('pnl', 0))
+                except Exception:
+                    pnl_val = 0.0
+                if pnl_val < 0:
                     loss_occurred = True
-            
-            # Process risk signals
-            if 'risk' in data:
-                risk_data = data['risk']
-                if isinstance(risk_data, dict):
-                    volatility_anomaly = risk_data.get('volume_anomaly', False)
-                    if volatility_anomaly:
-                        market_volatility = max(market_volatility, 0.05)
-            
+            # Risk
+            risk_data = data.get('risk', None)
+            if isinstance(risk_data, dict):
+                volatility_anomaly = risk_data.get('volume_anomaly', False)
+                if volatility_anomaly:
+                    market_volatility = max(market_volatility, 0.05)
             # Update emotional state
             self.update_emotions(market_volatility, loss_occurred, architect_override)
-            
             self.last_update = time.time()
-            
             return {
                 'emotional_state': self.get_emotional_state(),
                 'insights': self.generate_insights(),
@@ -88,11 +88,10 @@ class ARCH_CTRL:
                 'confidence': self.confidence,
                 'risk_appetite': self.risk_appetite
             }
-            
         except Exception as e:
             logger.error(f"ARCH_CTRL update failed: {e}")
             return {
-                'status': 'error', 
+                'status': 'error',
                 'error': str(e),
                 'emotional_state': self.get_emotional_state()
             }
@@ -203,9 +202,7 @@ class ARCH_CTRL:
         if len(self.history) > 1000:
             self.history = self.history[-1000:]
     
-    def update(self, market_volatility: float, loss_occurred: bool = False, architect_override: bool = False):
-        """Legacy update method for backward compatibility"""
-        self.update_emotions(market_volatility, loss_occurred, architect_override)
+    # Legacy sync update method removed to avoid confusion and errors
     
     def allow_action(self, max_fear: float = 0.7, min_confidence: float = 0.5, allow_high_risk: bool = False):
         """Enhanced emotional gating for trade execution"""
