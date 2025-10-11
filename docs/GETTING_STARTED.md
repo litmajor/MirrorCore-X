@@ -307,3 +307,18 @@ except Exception as e:
 - **Signal System**: See `docs/SIGNAL_SYSTEM.md`
 - **Strategies**: See `docs/STRATEGIES.md`
 - **Code Examples**: See `examples/` directory
+
+## Eventlet + Flask / SocketIO (important)
+
+If you're running the dashboard or any Flask + SocketIO server using `eventlet`, the monkey-patching must occur before importing Flask, SQLAlchemy, or any other module that touches sockets or threads. Put the following at the very top of your main entrypoint (for example `dashboard_server.py`) as the first lines in the file:
+
+```python
+import eventlet
+eventlet.monkey_patch()
+
+# then import the rest of your app
+from flask import Flask
+from flask_socketio import SocketIO
+```
+
+Failing to do this can cause runtime errors such as `RuntimeError: Working outside of application context` and repeated monkey-patch exceptions as the server restarts.

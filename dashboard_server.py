@@ -1,10 +1,12 @@
+import eventlet
+eventlet.monkey_patch()
+
 import asyncio
 import json
 import logging
 from datetime import datetime
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
-import eventlet
 import threading
 import time
 from typing import Dict, Any
@@ -15,7 +17,6 @@ from scanner import MomentumScanner, get_dynamic_config
 import ccxt
 from trade_analyzer_agent import TradeAnalyzerAgent
 
-eventlet.monkey_patch()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mirrorcore-dashboard-secret'

@@ -16,7 +16,12 @@ logging.basicConfig(
 async def startup_with_parallel_scanner():
     """Initialize system with parallel scanner before starting server"""
     from parallel_scanner_integration import add_parallel_scanner_to_mirrorcore
-    from api import system_state
+    try:
+        from api import system_state
+    except ImportError:
+        import sys
+        logging.error("❌ 'system_state' not found in 'api' module. Please ensure it is defined and exported.")
+        sys.exit(1)
     
     # Wait for system to initialize
     await asyncio.sleep(2)
