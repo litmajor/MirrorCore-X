@@ -89,38 +89,55 @@ async def run_system_loop():
     while True:
         try:
             sync_bus = system_state.get('sync_bus')
-            oracle_imagination = system_state.get('oracle_imagination')
-            parallel_scanner = system_state.get('parallel_scanner')
+            components = system_state.get('components')
             
             if sync_bus:
                 # Run tick
                 await sync_bus.tick()
                 
-                # Run enhanced cycle every 5 ticks
                 tick_count = getattr(sync_bus, 'tick_count', 0)
-                if tick_count % 5 == 0 and oracle_imagination:
-                    results = await oracle_imagination.run_enhanced_cycle()
-                    
-                    # Broadcast to WebSocket clients
+                
+                # Broadcast market data every tick
+                scanner_data = await sync_bus.get_state('scanner_data') or []
+                market_data = await sync_bus.get_state('market_data') or []
+                
+                if scanner_data or market_data:
                     await broadcast_update({
-                        'type': 'oracle_update',
+                        'type': 'market_update',
                         'data': {
-                            'directives': len(results.get('oracle_directives', [])),
+                            'scanner_data': scanner_data[-10:],  # Last 10 scanner items
+                            'market_data': market_data[-10:],     # Last 10 market items
                             'timestamp': datetime.now(timezone.utc).isoformat()
                         }
                     })
                 
-                # Parallel scan every 10 ticks
-                if tick_count % 10 == 0 and parallel_scanner:
-                    scan_results = await parallel_scanner.scan_and_update()
+                # Broadcast trading directives every 5 ticks
+                if tick_count % 5 == 0:
+                    directives = await sync_bus.get_state('trading_directives') or []
+                    strategy_grades = await sync_bus.get_state('strategy_grades') or {}
                     
                     await broadcast_update({
-                        'type': 'scanner_update',
+                        'type': 'trading_update',
                         'data': {
-                            'symbols': len(scan_results),
+                            'directives': directives[-5:],
+                            'strategy_grades': strategy_grades,
                             'timestamp': datetime.now(timezone.utc).isoformat()
                         }
                     })
+                
+                # Broadcast performance metrics every 10 ticks
+                if tick_count % 10 == 0:
+                    trade_analyzer = components.get('trade_analyzer')
+                    if trade_analyzer:
+                        await broadcast_update({
+                            'type': 'performance_update',
+                            'data': {
+                                'total_pnl': trade_analyzer.get_total_pnl(),
+                                'win_rate': trade_analyzer.get_win_rate(),
+                                'total_trades': len(trade_analyzer.trades),
+                                'timestamp': datetime.now(timezone.utc).isoformat()
+                            }
+                        })
             
             await asyncio.sleep(1)
         except Exception as e:
@@ -375,12 +392,12 @@ async def get_market_overview():
         df = pd.DataFrame(scanner_data)
         
         # Calculate real market metrics
-        total_volume = df['average_volume_usd'].sum() if 'average_volume_usd' in df else 0
+        total_volume = df['volume'].sum() if 'volume' in df else 0
         
         # Top movers by momentum
         top_movers = []
-        if 'momentum_short' in df and 'symbol' in df:
-            top_df = df.nlargest(5, 'momentum_short')[['symbol', 'momentum_short', 'price', 'composite_score']]
+        if 'momentum_7d' in df and 'symbol' in df:
+            top_df = df.nlargest(5, 'momentum_7d')[['symbol', 'momentum_7d', 'price']]
             top_movers = top_df.to_dict('records')
         
         # Market sentiment from signals
@@ -474,32 +491,31 @@ async def websocket_scanner(websocket):
 
 @app.get("/api/performance/summary")
 async def get_performance_summary():
-    """Get performance summary from backtest results"""
+    """Get performance summary from live system"""
     try:
-        # Try to load backtest results
-        backtest_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("backtest_") and f.endswith(".csv")]
+        sync_bus = system_state.get('sync_bus')
+        components = system_state.get('components')
         
-        if backtest_files:
-            latest_backtest = max(backtest_files)
-            df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_backtest))
-            
-            total_pnl = df['total_return'].sum() if 'total_return' in df else 0
-            win_rate = df['win_rate'].mean() if 'win_rate' in df else 0
-            sharpe_ratio = df['sharpe_ratio'].mean() if 'sharpe_ratio' in df else 0
-            max_drawdown = df['max_drawdown'].max() if 'max_drawdown' in df else 0
-            total_trades = len(df)
+        if not sync_bus or not components:
+            return {"error": "System not initialized"}
+        
+        # Get trade analyzer
+        trade_analyzer = components.get('trade_analyzer')
+        if trade_analyzer:
+            total_pnl = trade_analyzer.get_total_pnl()
+            win_rate = trade_analyzer.get_win_rate() * 100
+            sharpe_ratio = trade_analyzer.get_sharpe_ratio()
+            max_drawdown = trade_analyzer.get_drawdown_stats().get('max_drawdown', 0) * 100
+            total_trades = len(trade_analyzer.trades)
         else:
-            # Fallback to scan results for estimates
-            csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
-            if csv_files:
-                df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
-                total_pnl = df['avg_return_7d'].sum() if 'avg_return_7d' in df else 0
-                win_rate = len(df[df['composite_score'] > 70]) / len(df) * 100 if len(df) > 0 else 0
-                sharpe_ratio = 0
-                max_drawdown = 0
-                total_trades = len(df)
-            else:
-                raise Exception("No performance data available")
+            # Fallback to sync bus state
+            trades = await sync_bus.get_state('trades') or []
+            total_pnl = sum(t.get('pnl', 0) for t in trades)
+            winning_trades = len([t for t in trades if t.get('pnl', 0) > 0])
+            win_rate = (winning_trades / len(trades) * 100) if trades else 0
+            sharpe_ratio = 0
+            max_drawdown = 0
+            total_trades = len(trades)
         
         return {
             "total_pnl": float(total_pnl),
@@ -516,22 +532,33 @@ async def get_performance_summary():
 async def get_strategies():
     """Get all active strategies from strategy trainer"""
     try:
+        sync_bus = system_state.get('sync_bus')
+        components = system_state.get('components')
+        
+        if not sync_bus or not components:
+            return {"strategies": []}
+        
         strategies = []
         
-        # Load scan results to check which strategies are active
-        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
-        if csv_files:
-            df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
-            
-            # Momentum Scanner strategy
-            momentum_signals = df[df['momentum_short'] > 0.01] if 'momentum_short' in df else pd.DataFrame()
-            strategies.append({
-                "name": "Momentum Scanner",
-                "status": "active",
-                "pnl": float(momentum_signals['avg_return_7d'].sum() if not momentum_signals.empty and 'avg_return_7d' in momentum_signals else 0),
-                "win_rate": float(len(momentum_signals[momentum_signals['composite_score'] > 70]) / len(momentum_signals) * 100 if len(momentum_signals) > 0 else 0),
-                "signals": int(len(momentum_signals))
-            })
+        # Get strategy grades from sync bus
+        strategy_grades = await sync_bus.get_state('strategy_grades') or {}
+        strategy_trainer = components.get('strategy_trainer')
+        
+        if strategy_trainer:
+            for strategy_name, grade in strategy_grades.items():
+                perf_data = strategy_trainer.performance_tracker.get(strategy_name, [])
+                pnl = sum(perf_data[-10:]) if perf_data else 0
+                win_count = len([p for p in perf_data[-10:] if p > 0]) if perf_data else 0
+                win_rate = (win_count / min(10, len(perf_data)) * 100) if perf_data else 0
+                
+                strategies.append({
+                    "name": strategy_name,
+                    "status": "active" if grade in ['A', 'B'] else "paused",
+                    "pnl": float(pnl),
+                    "win_rate": float(win_rate),
+                    "signals": len(perf_data),
+                    "grade": grade
+                })
             
             # Mean Reversion strategy
             reversion_signals = df[df.get('reversion_candidate', False) == True] if 'reversion_candidate' in df else pd.DataFrame()
@@ -563,34 +590,41 @@ async def get_active_signals():
     """Get currently active trading signals from Oracle"""
     try:
         sync_bus = system_state.get('sync_bus')
-        oracle_imagination = system_state.get('oracle_imagination')
         
-        if not sync_bus or not oracle_imagination:
+        if not sync_bus:
             return {"signals": []}
         
-        # Get Oracle directives
-        directives = await sync_bus.get_state('oracle_directives') or []
+        # Get trading directives and scanner data
+        directives = await sync_bus.get_state('trading_directives') or []
         scanner_data = await sync_bus.get_state('scanner_data') or []
         
-        df = pd.DataFrame(scanner_data) if scanner_data else pd.DataFrame()
-        
-        # Filter for strong signals
-        strong_signals = df[
-            (df['composite_score'] > 70) | 
-            (df.get('cluster_validated', False) == True) |
-            (df.get('reversion_probability', 0) > 0.7)
-        ] if len(df) > 0 else pd.DataFrame()
-        
         signals = []
-        for _, row in strong_signals.head(20).iterrows():
+        
+        # Process directives first (highest priority)
+        for directive in directives[-20:]:
             signals.append({
-                "symbol": row.get('symbol', ''),
-                "signal": row.get('signal', 'NEUTRAL'),
-                "type": "momentum" if row.get('enhanced_momentum_score', 0) > 0.02 else "reversion" if row.get('reversion_candidate', False) else "neutral",
-                "strength": float(row.get('composite_score', 0)),
-                "price": float(row.get('price', 0)),
-                "timestamp": datetime.now().isoformat()
+                "symbol": directive.get('symbol', ''),
+                "signal": directive.get('action', 'NEUTRAL').upper(),
+                "type": "directive",
+                "strength": float(directive.get('confidence', 0) * 100),
+                "price": float(directive.get('price', 0)),
+                "timestamp": datetime.fromtimestamp(directive.get('timestamp', time.time())).isoformat()
             })
+        
+        # Add strong scanner signals if we have room
+        if len(signals) < 20 and scanner_data:
+            df = pd.DataFrame(scanner_data)
+            strong_signals = df[df['momentum_7d'].abs() > 0.05] if 'momentum_7d' in df else df
+            
+            for _, row in strong_signals.head(20 - len(signals)).iterrows():
+                signals.append({
+                    "symbol": row.get('symbol', ''),
+                    "signal": row.get('signal', 'NEUTRAL'),
+                    "type": "scanner",
+                    "strength": float(abs(row.get('momentum_7d', 0)) * 100),
+                    "price": float(row.get('price', 0)),
+                    "timestamp": datetime.fromtimestamp(row.get('timestamp', time.time())).isoformat()
+                })
         
         return {"signals": signals}
     except Exception as e:
@@ -599,38 +633,46 @@ async def get_active_signals():
 
 @app.get("/api/risk/analysis")
 async def get_risk_analysis():
-    """Get risk analysis data"""
+    """Get risk analysis data from live system"""
     try:
-        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_") and f.endswith(".csv")]
-        if not csv_files:
-            return {"error": "No data available"}
+        sync_bus = system_state.get('sync_bus')
+        components = system_state.get('components')
         
-        df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", max(csv_files)))
+        if not sync_bus or not components:
+            return {"error": "System not initialized"}
         
-        # Calculate risk metrics
-        portfolio_volatility = df['volume_ratio'].std() if 'volume_ratio' in df else 0
+        # Get risk sentinel and trade analyzer
+        risk_sentinel = components.get('risk_sentinel')
+        trade_analyzer = components.get('trade_analyzer')
         
-        # VaR calculation (simplified)
-        returns = df['avg_return_7d'] / 100 if 'avg_return_7d' in df else pd.Series([0])
-        var_95 = float(abs(returns.quantile(0.05)) * 10000) if len(returns) > 0 else 0
+        if trade_analyzer:
+            drawdown_stats = trade_analyzer.get_drawdown_stats()
+            total_pnl = trade_analyzer.get_total_pnl()
+            
+            # Calculate VaR from trade history
+            trade_pnls = [t.pnl for t in trade_analyzer.trades[-100:]] if trade_analyzer.trades else [0]
+            var_95 = float(abs(np.percentile(trade_pnls, 5))) if trade_pnls else 0
+            
+            # Get market data for volatility
+            market_data = await sync_bus.get_state('market_data') or []
+            portfolio_volatility = np.std([m.get('volatility', 0) for m in market_data[-50:]]) if market_data else 0
+            
+            # Position concentration from execution daemon
+            execution_daemon = components.get('execution_daemon')
+            positions = execution_daemon.open_orders if execution_daemon else {}
+            total_position_value = sum(abs(o.get('amount', 0) * o.get('price', 0)) for o in positions.values())
+            position_concentration = min(total_position_value / 10000, 1.0) if total_position_value else 0
+            
+            return {
+                "var_95": var_95,
+                "position_concentration": float(position_concentration),
+                "correlation_risk": float(portfolio_volatility),
+                "leverage": 1.0,
+                "portfolio_volatility": float(portfolio_volatility),
+                "risk_score": float((position_concentration + portfolio_volatility + abs(drawdown_stats.get('current_drawdown', 0))) / 3 * 100)
+            }
         
-        # Position concentration
-        top_position = df['average_volume_usd'].max() if 'average_volume_usd' in df else 0
-        total_volume = df['average_volume_usd'].sum() if 'average_volume_usd' in df else 1
-        position_concentration = float(top_position / total_volume) if total_volume > 0 else 0
-        
-        # Correlation risk (simplified based on volatility regime)
-        high_vol_count = len(df[df.get('volatility_regime', 'normal') == 'high']) if 'volatility_regime' in df else 0
-        correlation_risk = float(high_vol_count / len(df)) if len(df) > 0 else 0
-        
-        return {
-            "var_95": var_95,
-            "position_concentration": position_concentration,
-            "correlation_risk": correlation_risk,
-            "leverage": 1.0,
-            "portfolio_volatility": float(portfolio_volatility),
-            "risk_score": float((position_concentration + correlation_risk + portfolio_volatility) / 3 * 100)
-        }
+        return {"error": "Trade analyzer not available"}
     except Exception as e:
         logger.error(f"Error in risk analysis: {e}")
         return {"error": str(e)}
