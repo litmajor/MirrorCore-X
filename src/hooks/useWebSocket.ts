@@ -1,22 +1,34 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useWebSocket = (url: string) => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [data, setData] = useState<any>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
-  useEffect(() => {
+  const connect = useCallback(() => {
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
       setIsConnected(true);
+      reconnectAttemptsRef.current = 0;
       console.log('WebSocket connected');
     };
 
     ws.onclose = () => {
       setIsConnected(false);
       console.log('WebSocket disconnected');
+      
+      // Exponential backoff reconnection: 1s, 2s, 4s, 8s, max 30s
+      const delay = Math.min(Math.pow(2, reconnectAttemptsRef.current) * 1000, 30000);
+      reconnectAttemptsRef.current++;
+      
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log(`Reconnecting... (attempt ${reconnectAttemptsRef.current})`);
+        connect();
+      }, delay);
     };
 
     ws.onmessage = (event) => {
@@ -48,11 +60,18 @@ export const useWebSocket = (url: string) => {
     };
 
     setSocket(ws);
+  }, [url]);
+
+  useEffect(() => {
+    connect();
 
     return () => {
-      ws.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      socket?.close();
     };
-  }, [url]);
+  }, [connect]);
 
   const sendCommand = useCallback((command: string, params?: any) => {
     if (socket && isConnected) {

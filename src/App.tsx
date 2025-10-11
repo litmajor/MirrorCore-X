@@ -16,11 +16,13 @@ import Audit from './pages/Audit';
 import Positions from './pages/Positions';
 import TradeHistory from './pages/TradeHistory';
 import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   return (
-    <Router>
-      <Layout>
+    <ErrorBoundary>
+      <Router>
+        <Layout>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -41,6 +43,7 @@ function App() {
         </Routes>
       </Layout>
     </Router>
+    </ErrorBoundary>
   );
 }
 

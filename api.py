@@ -1,5 +1,8 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import pandas as pd
 import os
 from typing import List, Dict
@@ -10,7 +13,11 @@ import asyncio
 import json
 import numpy as np # Import numpy for percentile calculation
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -217,7 +224,8 @@ async def websocket_endpoint(websocket: WebSocket):
     consciousness_matrix: dict
 
 @app.get("/frames/{timeframe}", response_model=List[HybridMarketFrame])
-async def get_frames(timeframe: str):
+@limiter.limit("60/minute")
+async def get_frames(timeframe: str, request: Request, limit: int = 100, offset: int = 0):
     valid_timeframes = ["1m", "5m", "1h", "1d", "1w"]
     if timeframe not in valid_timeframes:
         raise HTTPException(status_code=400, detail="Invalid timeframe")
@@ -234,6 +242,11 @@ async def get_frames(timeframe: str):
 
     try:
         df = pd.read_csv(csv_path)
+        
+        # Apply pagination
+        total_records = len(df)
+        df = df.iloc[offset:offset + limit]
+        
         frames = []
         for idx, row in enumerate(df.to_dict('records')):
             anchor_index = idx
@@ -388,7 +401,8 @@ async def get_metrics():
     }
 
 @app.get("/api/market/overview")
-async def get_market_overview():
+@limiter.limit("30/minute")
+async def get_market_overview(request: Request):
     """Get market overview data from live system"""
     try:
         sync_bus = global_state.get('sync_bus')
@@ -447,7 +461,8 @@ async def get_market_overview():
         return {"error": str(e)}
 
 @app.get("/api/scanner/realtime")
-async def get_realtime_scanner_data():
+@limiter.limit("20/minute")
+async def get_realtime_scanner_data(request: Request):
     """Get real-time scanner data for live updates"""
     try:
         # Import scanner dynamically
