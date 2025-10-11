@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, ScatterChart, Scatter, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Settings, TrendingUp, Shield, Zap, AlertCircle, Calculator } from 'lucide-react';
@@ -9,8 +8,13 @@ const MathOptimizer: React.FC = () => {
   const [etaTurnover, setEtaTurnover] = useState(0.05);
   const [maxWeight, setMaxWeight] = useState(0.25);
   const [regime, setRegime] = useState('trending');
+  const [objective, setObjective] = useState('mean_variance');
   const [useShrinkage, setUseShrinkage] = useState(true);
   const [useResampling, setUseResampling] = useState(false);
+  const [useCryptoOptimizer, setUseCryptoOptimizer] = useState(true);
+
+  const { data: flashCrashStatus } = useAPI('/api/crypto/flash-crash-status');
+  const { data: cryptoRegime } = useAPI('/api/crypto/regime');
 
   const { data: optimizerData, loading } = useAPI('/api/optimizer/weights', {
     lambda: lambdaRisk,
@@ -103,6 +107,40 @@ const MathOptimizer: React.FC = () => {
         </div>
       </div>
 
+      {/* Flash Crash Alert */}
+      {flashCrashStatus && flashCrashStatus.flash_crash_detected && (
+        <div className="bg-red-500/20 border border-red-500 rounded-lg p-4 mb-6">
+          <div className="flex items-center space-x-3">
+            <AlertCircle className="w-6 h-6 text-red-400" />
+            <div>
+              <h3 className="text-lg font-semibold text-red-400">Flash Crash Detected</h3>
+              <p className="text-red-300">Protection Action: {flashCrashStatus.protection_action}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Crypto Regime Indicator */}
+      {cryptoRegime && (
+        <div className="chart-container mb-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-white flex items-center">
+              <TrendingUp className="w-5 h-5 mr-2 text-brand-cyan" />
+              Crypto Market Regime
+            </h3>
+            <span className={`px-4 py-2 rounded-lg font-semibold ${
+              cryptoRegime.regime === 'BULL_RUN' ? 'bg-green-500/20 text-green-400' :
+              cryptoRegime.regime === 'BEAR_CAPITULATION' ? 'bg-red-500/20 text-red-400' :
+              cryptoRegime.regime === 'FLASH_CRASH' ? 'bg-red-600/20 text-red-500' :
+              cryptoRegime.regime === 'ACCUMULATION' ? 'bg-blue-500/20 text-blue-400' :
+              'bg-slate-700 text-slate-300'
+            }`}>
+              {cryptoRegime.regime.replace(/_/g, ' ')}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Control Panel */}
       <div className="brand-card">
         <div className="flex items-center gap-2 mb-4">
@@ -174,24 +212,36 @@ const MathOptimizer: React.FC = () => {
             </select>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
+          {/* Advanced Options */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={useShrinkage}
                 onChange={(e) => setUseShrinkage(e.target.checked)}
-                className="w-4 h-4"
+                className="w-5 h-5 rounded bg-slate-700 border-slate-600"
               />
-              <span className="text-sm text-txt-secondary">Ledoit-Wolf Shrinkage</span>
+              <span className="text-white">Use Ledoit-Wolf Shrinkage</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+
+            <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={useResampling}
                 onChange={(e) => setUseResampling(e.target.checked)}
-                className="w-4 h-4"
+                className="w-5 h-5 rounded bg-slate-700 border-slate-600"
               />
-              <span className="text-sm text-txt-secondary">Bootstrap Resampling</span>
+              <span className="text-white">Use Michaud Resampling</span>
+            </label>
+
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useCryptoOptimizer}
+                onChange={(e) => setUseCryptoOptimizer(e.target.checked)}
+                className="w-5 h-5 rounded bg-slate-700 border-slate-600"
+              />
+              <span className="text-white">Use Crypto Optimizer</span>
             </label>
           </div>
         </div>
@@ -223,7 +273,7 @@ const MathOptimizer: React.FC = () => {
             <div className="text-txt-secondary mb-4">
               max<sub>w</sub> w'μ - (λ/2)w'Σw - η||w - w<sub>prev</sub>||²
             </div>
-            
+
             <div className="text-brand-cyan mb-3">Subject to:</div>
             <div className="text-txt-secondary space-y-1">
               <div>• Σw<sub>i</sub> = 1 (fully invested)</div>

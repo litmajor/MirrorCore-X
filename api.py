@@ -655,6 +655,106 @@ async def get_optimizer_weights(
         }
 
 
+@app.get("/api/optimizer/crypto-weights")
+async def get_crypto_optimizer_weights(
+    lambda_risk: float = 100.0,
+    eta: float = 0.05,
+    max_weight: float = 0.25,
+    regime: str = "trending",
+    shrinkage: bool = True,
+    use_on_chain: bool = True
+):
+    """Get crypto-optimized portfolio weights with flash crash protection"""
+    try:
+        from ensemble_integration import get_optimal_weights_crypto
+        
+        # Get market data from sync bus
+        sync_bus = global_state.get('sync_bus')
+        market_data = None
+        if sync_bus:
+            scanner_data = await sync_bus.get_state('scanner_data') or []
+            if scanner_data:
+                market_data = pd.DataFrame(scanner_data)
+        
+        result = get_optimal_weights_crypto(
+            lambda_risk=lambda_risk,
+            eta_turnover=eta,
+            max_weight=max_weight,
+            regime=regime,
+            use_shrinkage=shrinkage,
+            market_data=market_data
+        )
+        
+        return result
+    except Exception as e:
+        logger.error(f"Crypto optimizer failed: {e}")
+        return {
+            "weights": [],
+            "expected_return": 0.0,
+            "expected_volatility": 0.0,
+            "sharpe_ratio": 0.0,
+            "error": str(e)
+        }
+
+
+@app.get("/api/crypto/flash-crash-status")
+async def get_flash_crash_status():
+    """Get flash crash protection status"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        if not sync_bus:
+            return {"error": "System not initialized"}
+        
+        scanner_data = await sync_bus.get_state('scanner_data') or []
+        if not scanner_data:
+            return {"flash_crash_detected": False, "protection_action": "NORMAL_TRADING"}
+        
+        from crypto_ensemble_optimizer import CryptoFlashCrashProtector, CryptoOptimizationConfig
+        
+        df = pd.DataFrame(scanner_data)
+        config = CryptoOptimizationConfig()
+        protector = CryptoFlashCrashProtector(config)
+        
+        is_flash_crash = protector.detect_flash_crash(df)
+        action = protector.get_protection_action(is_flash_crash)
+        
+        return {
+            "flash_crash_detected": is_flash_crash,
+            "protection_action": action,
+            "crash_history_count": len(protector.crash_history)
+        }
+    except Exception as e:
+        logger.error(f"Flash crash status check failed: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/crypto/regime")
+async def get_crypto_regime():
+    """Get crypto-specific market regime"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        if not sync_bus:
+            return {"error": "System not initialized"}
+        
+        scanner_data = await sync_bus.get_state('scanner_data') or []
+        if not scanner_data:
+            return {"regime": "UNKNOWN"}
+        
+        from crypto_ensemble_optimizer import CryptoRegimeDetector
+        
+        df = pd.DataFrame(scanner_data)
+        detector = CryptoRegimeDetector()
+        regime = detector.detect_crypto_regime(df)
+        
+        return {
+            "regime": regime,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Regime detection failed: {e}")
+        return {"error": str(e)}
+
+
 @app.get("/api/imagination/analysis")
 async def get_imagination_analysis():
     """Get Imagination Engine analysis results"""

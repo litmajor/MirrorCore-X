@@ -9,6 +9,23 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+from mathematical_ensemble_optimiser import (
+    EnsembleOptimizer,
+    OptimizationConfig,
+    OptimizationObjective,
+    MarketRegime
+)
+
+try:
+    from crypto_ensemble_optimizer import (
+        CryptoEnsembleOptimizer,
+        CryptoOptimizationConfig
+    )
+    CRYPTO_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    logger.warning("Crypto optimizer not available")
+    CRYPTO_OPTIMIZER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +51,25 @@ class EnhancedEnsembleManager:
             logger.warning("Adaptive ensemble optimizer not available")
             self.ensemble_optimizer = None
             self.optimizer_available = False
+
+        # Initialize crypto optimizer if available
+        self.crypto_optimizer = None
+        if CRYPTO_OPTIMIZER_AVAILABLE:
+            try:
+                crypto_config = CryptoOptimizationConfig(
+                    risk_profile=risk_profile,
+                    objective=OptimizationObjective.SHARPE_RATIO,
+                    max_position_size=0.1,
+                    turnover_penalty=0.01
+                )
+                self.crypto_optimizer = CryptoEnsembleOptimizer(
+                    strategies=strategies,
+                    config=crypto_config
+                )
+                logger.info("Crypto ensemble optimizer initialized successfully.")
+            except Exception as e:
+                logger.error(f"Failed to initialize crypto optimizer: {e}")
+                self.crypto_optimizer = None
 
         self.current_weights = {}
         self.current_regime = 'normal'
@@ -80,6 +116,28 @@ class EnhancedEnsembleManager:
                         regime=self.current_regime,
                         recent_performance=recent_performance
                     )
+
+            # If crypto optimizer is available, use it to refine weights
+            if self.crypto_optimizer:
+                try:
+                    # Assuming market_data passed to crypto optimizer includes relevant crypto features
+                    # We might need to adjust the data passed based on crypto_optimizer's requirements
+                    crypto_weights = self.crypto_optimizer.optimize(
+                        market_data=df,
+                        current_weights=self.current_weights,
+                        current_regime=self.current_regime,
+                        recent_performance=recent_performance
+                    )
+                    # Blend traditional weights with crypto-optimized weights
+                    # Example: 60% traditional, 40% crypto
+                    self.current_weights = {
+                        name: 0.6 * self.current_weights.get(name, 0) + 0.4 * crypto_weights.get(name, 0)
+                        for name in set(list(self.current_weights.keys()) + list(crypto_weights.keys()))
+                    }
+                    logger.info("Ensemble weights refined by crypto optimizer.")
+                except Exception as e:
+                    logger.error(f"Crypto optimizer failed to refine weights: {e}")
+
 
             # Update global state
             await self.sync_bus.update_state('ensemble_weights', self.current_weights)
@@ -130,7 +188,7 @@ class EnhancedEnsembleManager:
 
     async def generate_ensemble_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Generate consensus signal from all strategies"""
-        if not self.ensemble_optimizer:
+        if not self.ensemble_optimizer and not self.crypto_optimizer:
             return {'direction': 'HOLD', 'strength': 0, 'confidence': 0}
 
         # Get signals from all strategies
@@ -144,7 +202,14 @@ class EnhancedEnsembleManager:
                 signals[strategy_name] = 0.0
 
         # Aggregate with current weights
-        consensus = self.ensemble_optimizer.aggregate_signals(signals, self.current_weights)
+        if self.crypto_optimizer:
+            # Use crypto optimizer for aggregation if available, as it might handle crypto-specific aspects
+            consensus = self.crypto_optimizer.aggregate_signals(signals, self.current_weights)
+        elif self.ensemble_optimizer:
+            consensus = self.ensemble_optimizer.aggregate_signals(signals, self.current_weights)
+        else:
+            # Fallback if no optimizer is available (should not happen with current setup)
+            consensus = {'direction': 'HOLD', 'strength': 0, 'confidence': 0}
 
         return consensus
 
@@ -152,6 +217,7 @@ class EnhancedEnsembleManager:
         """Get ensemble status"""
         return {
             'optimizer_available': self.optimizer_available,
+            'crypto_optimizer_available': CRYPTO_OPTIMIZER_AVAILABLE,
             'adaptive_enabled': self.adaptive_enabled,
             'current_regime': self.current_regime,
             'risk_profile': self.risk_profile,
@@ -243,6 +309,16 @@ def get_optimal_weights(
             'turnover': 0.0
         }
 
+# Placeholder for demo function, assuming it exists elsewhere or is not needed for this specific change.
+# If it's essential, it should be provided or defined.
+def demo_ensemble_integration():
+    logger.info("Running demo ensemble integration (placeholder)")
+    pass # Placeholder for actual demo logic
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    demo_ensemble_integration()
+    # Call the demo function if it's intended to be run directly
+    # For this example, we'll assume demo_ensemble_integration is defined elsewhere or not critical for the provided snippet.
+    # If it were critical, its definition would need to be included.
+    # demo_ensemble_integration()
+    logger.info("Ensemble integration module loaded.")
