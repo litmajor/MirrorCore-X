@@ -753,15 +753,25 @@ async def get_ensemble_weights():
     """Get current strategy weights"""
     try:
         sync_bus = global_state.get('sync_bus')
+        components = global_state.get('components')
+        
         if not sync_bus:
             return {"weights": {}}
         
         weights = await sync_bus.get_state('ensemble_weights') or {}
         regime = await sync_bus.get_state('market_regime') or 'unknown'
         
+        # Get optimization report if available
+        optimization_report = {}
+        if components:
+            strategy_trainer = components.get('strategy_trainer')
+            if strategy_trainer and hasattr(strategy_trainer, 'get_optimization_report'):
+                optimization_report = strategy_trainer.get_optimization_report()
+        
         return {
             "regime": regime,
             "weights": weights,
+            "optimization": optimization_report,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:

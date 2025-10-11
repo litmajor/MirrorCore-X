@@ -56,23 +56,48 @@ class EnhancedEnsembleManager:
             # Calculate strategy performance
             recent_performance = self._calculate_recent_performance()
             
-            # Update weights
-            if self.ensemble_optimizer and self.adaptive_enabled:
-                self.current_weights = self.ensemble_optimizer.calculate_weights(
-                    regime=self.current_regime,
-                    recent_performance=recent_performance
-                )
+            # Use mathematical optimization for weights
+            if hasattr(self.strategy_trainer, 'optimize_ensemble_weights'):
+                math_weights = self.strategy_trainer.optimize_ensemble_weights(market_data=df)
+                
+                # Blend mathematical weights with adaptive weights
+                if self.ensemble_optimizer and self.adaptive_enabled:
+                    adaptive_weights = self.ensemble_optimizer.calculate_weights(
+                        regime=self.current_regime,
+                        recent_performance=recent_performance
+                    )
+                    
+                    # 70% mathematical optimization, 30% adaptive heuristic
+                    self.current_weights = {
+                        name: 0.7 * math_weights.get(name, 0) + 0.3 * adaptive_weights.get(name, 0)
+                        for name in set(list(math_weights.keys()) + list(adaptive_weights.keys()))
+                    }
+                else:
+                    self.current_weights = math_weights
+            else:
+                # Fallback to adaptive weights only
+                if self.ensemble_optimizer and self.adaptive_enabled:
+                    self.current_weights = self.ensemble_optimizer.calculate_weights(
+                        regime=self.current_regime,
+                        recent_performance=recent_performance
+                    )
             
             # Update global state
             await self.sync_bus.update_state('ensemble_weights', self.current_weights)
             await self.sync_bus.update_state('market_regime', self.current_regime)
+            
+            # Get optimization report if available
+            opt_report = {}
+            if hasattr(self.strategy_trainer, 'get_optimization_report'):
+                opt_report = self.strategy_trainer.get_optimization_report()
             
             logger.info(f"Ensemble updated: regime={self.current_regime}, weights={len(self.current_weights)}")
             
             return {
                 'regime': self.current_regime,
                 'weights': self.current_weights,
-                'performance': recent_performance
+                'performance': recent_performance,
+                'optimization_report': opt_report
             }
             
         except Exception as e:

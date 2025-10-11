@@ -6,6 +6,12 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 import asyncio
 import time
+from mathematical_ensemble_optimiser import (
+    EnsembleOptimizer, 
+    OptimizationConfig,
+    OptimizationObjective,
+    MarketRegime
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,20 @@ class StrategyTrainerAgent:
         self.last_update = time.time()
         
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize mathematical ensemble optimizer
+        opt_config = OptimizationConfig(
+            lambda_risk=100.0,  # Risk aversion parameter
+            eta_turnover=0.05,  # Turnover penalty
+            max_weight=max_weight,
+            min_weight=min_weight,
+            returns_window=lookback_window * 5,  # Longer window for covariance
+            use_shrinkage=True  # Ledoit-Wolf shrinkage
+        )
+        self.ensemble_optimizer = EnsembleOptimizer(opt_config)
+        self.optimization_enabled = True
+        self.current_regime = MarketRegime.MIXED
+        self.optimization_history = []
         
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Enhanced update method compatible with SyncBus architecture"""
@@ -353,6 +373,121 @@ class StrategyTrainerAgent:
                 del self.live_weights[name]
             self.logger.info(f"Removed strategy: {name}")
     
+    def optimize_ensemble_weights(self, market_data: pd.DataFrame = None) -> Dict[str, float]:
+        """
+        Use mathematical optimization to calculate optimal strategy weights
+        Returns dict of {strategy_name: optimal_weight}
+        """
+        if not self.optimization_enabled or len(self.strategies) < 2:
+            return self.live_weights
+        
+        try:
+            # Build returns DataFrame from performance history
+            returns_data = []
+            strategy_names = list(self.performance.keys())
+            
+            # Get minimum length across all strategies
+            min_length = min([len(self.performance[name]) for name in strategy_names if self.performance[name]], default=0)
+            
+            if min_length < 10:  # Need at least 10 periods
+                self.logger.warning("Insufficient data for optimization, using heuristic weights")
+                return self.live_weights
+            
+            # Build aligned returns matrix
+            for i in range(min_length):
+                row_data = {}
+                for name in strategy_names:
+                    if len(self.performance[name]) > i:
+                        row_data[name] = self.performance[name][-(min_length-i)]
+                returns_data.append(row_data)
+            
+            returns_df = pd.DataFrame(returns_data)
+            
+            # Detect market regime from data if available
+            if market_data is not None and not market_data.empty:
+                self.current_regime = self._detect_market_regime(market_data)
+            
+            # Estimate parameters and optimize
+            mu, Sigma = self.ensemble_optimizer.estimate_parameters(returns_df, method='ewma')
+            
+            result = self.ensemble_optimizer.optimize(
+                mu=mu,
+                Sigma=Sigma,
+                regime=self.current_regime.value,
+                objective=OptimizationObjective.MAX_SHARPE
+            )
+            
+            # Map optimized weights back to strategy names
+            optimized_weights = {}
+            for i, name in enumerate(strategy_names):
+                optimized_weights[name] = float(result.weights[i])
+            
+            # Store optimization results
+            self.optimization_history.append({
+                'timestamp': time.time(),
+                'regime': self.current_regime.value,
+                'expected_return': result.expected_return,
+                'expected_volatility': result.expected_volatility,
+                'sharpe_ratio': result.sharpe_ratio,
+                'weights': optimized_weights
+            })
+            
+            # Update live weights
+            self.live_weights.update(optimized_weights)
+            
+            self.logger.info(f"Optimized ensemble: Sharpe={result.sharpe_ratio:.3f}, "
+                           f"Return={result.expected_return:.4f}, Vol={result.expected_volatility:.4f}")
+            
+            return optimized_weights
+            
+        except Exception as e:
+            self.logger.error(f"Ensemble optimization failed: {e}")
+            return self.live_weights
+    
+    def _detect_market_regime(self, market_data: pd.DataFrame) -> MarketRegime:
+        """Detect current market regime from data"""
+        try:
+            if 'volatility' in market_data.columns:
+                volatility = market_data['volatility'].iloc[-20:].mean()
+            else:
+                returns = market_data['close'].pct_change() if 'close' in market_data.columns else market_data['price'].pct_change()
+                volatility = returns.iloc[-20:].std()
+            
+            if 'trend_score' in market_data.columns:
+                trend = abs(market_data['trend_score'].iloc[-20:].mean()) / 10
+            else:
+                trend = abs(returns.iloc[-20:].mean()) / volatility if volatility > 0 else 0
+            
+            # Classify regime
+            if volatility > 0.05:
+                return MarketRegime.VOLATILE
+            elif trend > 0.7:
+                return MarketRegime.TRENDING
+            elif volatility < 0.02:
+                return MarketRegime.RANGING
+            else:
+                return MarketRegime.MIXED
+                
+        except Exception as e:
+            self.logger.error(f"Regime detection failed: {e}")
+            return MarketRegime.MIXED
+    
+    def get_optimization_report(self) -> Dict[str, Any]:
+        """Get detailed optimization report"""
+        if not self.optimization_history:
+            return {'status': 'no_optimizations'}
+        
+        latest = self.optimization_history[-1]
+        
+        return {
+            'enabled': self.optimization_enabled,
+            'current_regime': self.current_regime.value,
+            'latest_optimization': latest,
+            'optimization_count': len(self.optimization_history),
+            'average_sharpe': np.mean([h['sharpe_ratio'] for h in self.optimization_history[-10:]]),
+            'current_weights': self.live_weights
+        }
+    
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive status for monitoring"""
         return {
@@ -363,7 +498,10 @@ class StrategyTrainerAgent:
             'best_strategy': self.get_best_strategy(),
             'overall_confidence': self._calculate_overall_confidence(),
             'last_update': self.last_update,
-            'data_interests': self.data_interests
+            'data_interests': self.data_interests,
+            'optimization_enabled': self.optimization_enabled,
+            'current_regime': self.current_regime.value,
+            'last_optimization': self.optimization_history[-1] if self.optimization_history else None
         }
 
 # Enhanced Strategy Agent Wrappers with SyncBus compatibility
