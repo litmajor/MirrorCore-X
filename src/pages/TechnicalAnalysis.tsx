@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
 import { useAPI } from '../hooks/useAPI';
-import { TrendingUp, TrendingDown, Activity, BarChart3, Layers, Target } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, BarChart3, Layers, Target, AlertCircle } from 'lucide-react';
+import { MetricCardSkeleton, CardSkeleton } from '../components/Skeleton';
 
 const TechnicalAnalysis: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState('BTC/USDT');
-  const { data: scannerData } = useAPI('/api/scanner/realtime');
-  const { data: technicalData } = useAPI(`/api/technical/analysis/${selectedSymbol.replace('/', '_')}`);
+  const { data: scannerData, loading: scanLoading, error: scanError } = useAPI('/api/scanner/realtime');
+  const { data: technicalData, loading: techLoading, error: techError } = useAPI(`/api/technical/analysis/${selectedSymbol.replace('/', '_')}`);
 
   return (
     <div className="space-y-6">
@@ -16,19 +17,40 @@ const TechnicalAnalysis: React.FC = () => {
       </div>
 
       {/* Symbol Selector */}
-      <div className="bg-bg-secondary rounded-lg p-4">
-        <select 
-          value={selectedSymbol}
-          onChange={(e) => setSelectedSymbol(e.target.value)}
-          className="bg-bg-tertiary text-white rounded px-4 py-2 border border-brand-cyan/30"
-        >
-          {scannerData?.data?.map((item: any) => (
-            <option key={item.symbol} value={item.symbol}>{item.symbol}</option>
-          ))}
-        </select>
-      </div>
+      {scanLoading ? (
+        <CardSkeleton />
+      ) : scanError || !scannerData?.data || scannerData.data.length === 0 ? (
+        <div className="brand-card text-center py-12">
+          <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-white mb-2">Scanner Data Unavailable</h3>
+          <p className="text-txt-secondary">Start the backend scanner to view technical analysis.</p>
+        </div>
+      ) : (
+        <>
+          <div className="bg-bg-secondary rounded-lg p-4">
+            <select 
+              value={selectedSymbol}
+              onChange={(e) => setSelectedSymbol(e.target.value)}
+              className="bg-bg-tertiary text-white rounded px-4 py-2 border border-brand-cyan/30"
+            >
+              {scannerData.data.map((item: any) => (
+                <option key={item.symbol} value={item.symbol}>{item.symbol}</option>
+              ))}
+            </select>
+          </div>
 
-      {technicalData && !technicalData.error && (
+          {techLoading ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+              </div>
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : technicalData && !technicalData.error ? (
         <>
           {/* Price & Signal Overview */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -233,6 +255,8 @@ const TechnicalAnalysis: React.FC = () => {
               </div>
             </div>
           </div>
+        </>
+          ) : null}
         </>
       )}
     </div>

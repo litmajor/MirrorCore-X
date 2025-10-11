@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { Brain, Sparkles, TrendingUp, Shield, AlertTriangle } from 'lucide-react';
+import { Brain, Sparkles, TrendingUp, Shield, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useAPI } from '../hooks/useAPI';
+import { CardSkeleton, MetricCardSkeleton } from '../components/Skeleton';
 
 const Oracle: React.FC = () => {
-  const { data: oracleData } = useAPI('/api/oracle/directives');
-  const { data: imagination } = useAPI('/api/imagination/analysis');
-  const { data: bayesian } = useAPI('/api/bayesian/beliefs');
+  const { data: oracleData, loading: oracleLoading, error: oracleError } = useAPI('/api/oracle/directives');
+  const { data: imagination, loading: imagLoading, error: imagError } = useAPI('/api/imagination/analysis');
+  const { data: bayesian, loading: bayesLoading, error: bayesError } = useAPI('/api/bayesian/beliefs');
 
   return (
     <div className="space-y-6">
@@ -22,8 +23,24 @@ const Oracle: React.FC = () => {
           <h2 className="text-xl font-semibold text-white">Oracle Trading Directives</h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
-          {oracleData?.directives?.map((directive: any, idx: number) => (
+        {oracleLoading ? (
+          <div className="space-y-4">
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+        ) : oracleError || !oracleData?.directives || oracleData.directives.length === 0 ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">
+              {oracleError ? 'Oracle Engine Offline' : 'No Directives Generated'}
+            </h3>
+            <p className="text-txt-secondary">
+              {oracleError ? 'Start the backend Oracle service to see AI-driven trading insights.' : 'The Oracle is analyzing markets and will provide directives soon.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {oracleData.directives.map((directive: any, idx: number) => (
             <div key={idx} className="p-4 bg-bg-surface rounded-lg border border-accent-dark">
               <div className="flex items-center justify-between mb-3">
                 <div>
@@ -69,7 +86,8 @@ const Oracle: React.FC = () => {
               )}
             </div>
           ))}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Bayesian Beliefs */}
@@ -79,8 +97,24 @@ const Oracle: React.FC = () => {
           <h2 className="text-xl font-semibold text-white">Bayesian Strategy Beliefs</h2>
         </div>
 
-        <div className="space-y-4">
-          {bayesian?.top_strategies?.map((strategy: any, idx: number) => (
+        {bayesLoading ? (
+          <div className="space-y-4">
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+        ) : bayesError ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Bayesian System Offline</h3>
+            <p className="text-txt-secondary">Start the backend Bayesian service to view strategy beliefs.</p>
+          </div>
+        ) : !bayesian?.top_strategies || bayesian.top_strategies.length === 0 ? (
+          <div className="text-center py-8 text-txt-secondary">
+            No strategy beliefs available yet
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {bayesian.top_strategies.map((strategy: any, idx: number) => (
             <div key={idx} className="p-4 bg-bg-surface rounded-lg border border-accent-dark">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold text-white">{strategy.name}</h3>
@@ -112,7 +146,8 @@ const Oracle: React.FC = () => {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        )}
 
         {bayesian?.market_context && (
           <div className="mt-6 p-4 bg-bg-surface rounded-lg border border-accent-dark">
@@ -146,7 +181,28 @@ const Oracle: React.FC = () => {
           <h2 className="text-xl font-semibold text-white">Imagination Engine Analysis</h2>
         </div>
 
-        {imagination?.summary && (
+        {imagLoading ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </div>
+            <CardSkeleton />
+          </div>
+        ) : imagError ? (
+          <div className="text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Imagination Engine Offline</h3>
+            <p className="text-txt-secondary">Start the backend Imagination Engine to view counterfactual analysis.</p>
+          </div>
+        ) : !imagination?.summary ? (
+          <div className="text-center py-8 text-txt-secondary">
+            No imagination analysis available yet
+          </div>
+        ) : (
+          imagination?.summary && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="metric-card">
@@ -197,7 +253,7 @@ const Oracle: React.FC = () => {
               </div>
             )}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

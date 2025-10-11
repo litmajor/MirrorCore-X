@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
 import { useAPI } from '../hooks/useAPI';
-import { History, Filter, Download, TrendingUp, TrendingDown } from 'lucide-react';
+import { History, Filter, Download, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { MetricCardSkeleton, TableRowSkeleton } from '../components/Skeleton';
 
 const TradeHistory: React.FC = () => {
-  const { data: tradesData } = useAPI('/api/trades/history');
+  const { data: tradesData, loading, error } = useAPI('/api/trades/history');
   const [filterType, setFilterType] = useState<string>('all');
 
   const filteredTrades = tradesData?.trades?.filter((trade: any) => {
@@ -22,27 +23,45 @@ const TradeHistory: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="metric-card">
-          <h3 className="text-txt-secondary text-sm mb-2">Total Trades</h3>
-          <p className="text-2xl font-bold text-white">{tradesData?.total_trades || 0}</p>
-        </div>
-        <div className="metric-card">
-          <h3 className="text-txt-secondary text-sm mb-2">Winning Trades</h3>
-          <p className="text-2xl font-bold text-success">{tradesData?.winning_trades || 0}</p>
-        </div>
-        <div className="metric-card">
-          <h3 className="text-txt-secondary text-sm mb-2">Losing Trades</h3>
-          <p className="text-2xl font-bold text-error">{tradesData?.losing_trades || 0}</p>
-        </div>
-        <div className="metric-card">
-          <h3 className="text-txt-secondary text-sm mb-2">Avg Trade Duration</h3>
-          <p className="text-2xl font-bold text-white">{tradesData?.avg_duration || '0h'}</p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {loading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : error ? (
+          <div className="col-span-full brand-card text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Unable to Load Trade History</h3>
+            <p className="text-txt-secondary">Start the backend to view your trading history.</p>
+          </div>
+        ) : (
+          <>
+            <div className="metric-card">
+              <h3 className="text-txt-secondary text-sm mb-2">Total Trades</h3>
+              <p className="text-2xl font-bold text-white">{tradesData?.total_trades || 0}</p>
+            </div>
+            <div className="metric-card">
+              <h3 className="text-txt-secondary text-sm mb-2">Winning Trades</h3>
+              <p className="text-2xl font-bold text-success">{tradesData?.winning_trades || 0}</p>
+            </div>
+            <div className="metric-card">
+              <h3 className="text-txt-secondary text-sm mb-2">Losing Trades</h3>
+              <p className="text-2xl font-bold text-error">{tradesData?.losing_trades || 0}</p>
+            </div>
+            <div className="metric-card">
+              <h3 className="text-txt-secondary text-sm mb-2">Avg Trade Duration</h3>
+              <p className="text-2xl font-bold text-white">{tradesData?.avg_duration || '0h'}</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Filters */}
-      <div className="chart-container">
+      {!error && (
+        <div className="chart-container">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             <Filter className="w-4 h-4 text-txt-secondary" />
@@ -112,7 +131,8 @@ const TradeHistory: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

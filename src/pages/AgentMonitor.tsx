@@ -2,18 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAPI } from '../hooks/useAPI';
 import { Activity, AlertCircle, CheckCircle, XCircle, Cpu, Database, Terminal } from 'lucide-react';
+import { MetricCardSkeleton, CardSkeleton } from '../components/Skeleton';
 
 const AgentMonitor: React.FC = () => {
-  const { data: agentData, refetch } = useAPI('/api/agents/states');
-  const { data: logsData } = useAPI('/api/agents/logs');
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch();
-    }, 3000); // Refresh every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [refetch]);
+  const { data: agentData, loading: agentLoading, error: agentError } = useAPI('/api/agents/states');
+  const { data: logsData, loading: logsLoading, error: logsError } = useAPI('/api/agents/logs');
 
   const getHealthColor = (score: number) => {
     if (score > 0.8) return 'text-success';
@@ -35,43 +28,67 @@ const AgentMonitor: React.FC = () => {
       </div>
 
       {/* System Health Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Total Agents</h3>
-            <Cpu className="w-5 h-5 text-brand-cyan" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+        {agentLoading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : agentError ? (
+          <div className="col-span-full brand-card text-center py-12">
+            <AlertCircle className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Agent System Offline</h3>
+            <p className="text-txt-secondary">Start the backend to monitor agent states and system health.</p>
           </div>
-          <p className="text-2xl font-bold text-white">
-            {Object.keys(agentData?.agents || {}).length}
-          </p>
-        </div>
+        ) : (
+          <>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Total Agents</h3>
+                <Cpu className="w-5 h-5 text-brand-cyan" />
+              </div>
+              <p className="text-2xl font-bold text-white">
+                {Object.keys(agentData?.agents || {}).length}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Healthy Agents</h3>
-            <CheckCircle className="w-5 h-5 text-success" />
-          </div>
-          <p className="text-2xl font-bold text-success">
-            {Object.values(agentData?.agents || {}).filter((a: any) => a.health.health_score > 0.8).length}
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Healthy Agents</h3>
+                <CheckCircle className="w-5 h-5 text-success" />
+              </div>
+              <p className="text-2xl font-bold text-success">
+                {Object.values(agentData?.agents || {}).filter((a: any) => a.health.health_score > 0.8).length}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">System Ticks</h3>
-            <Activity className="w-5 h-5 text-brand-purple" />
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {agentData?.tick_count || 0}
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">System Ticks</h3>
+                <Activity className="w-5 h-5 text-brand-purple" />
+              </div>
+              <p className="text-2xl font-bold text-white">
+                {agentData?.tick_count || 0}
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Agent States Grid */}
-      <div className="chart-container">
-        <h3 className="text-lg font-semibold text-white mb-4">Agent States</h3>
-        <div className="space-y-3">
-          {Object.entries(agentData?.agents || {}).map(([agentId, agentInfo]: [string, any]) => (
+      {!agentError && (
+        <div className="chart-container">
+          <h3 className="text-lg font-semibold text-white mb-4">Agent States</h3>
+          {agentLoading ? (
+            <div className="space-y-3">
+              <CardSkeleton />
+              <CardSkeleton />
+              <CardSkeleton />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(agentData?.agents || {}).map(([agentId, agentInfo]: [string, any]) => (
             <div key={agentId} className="bg-bg-tertiary rounded-lg p-4 border border-brand-cyan/10">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-3">
@@ -106,19 +123,30 @@ const AgentMonitor: React.FC = () => {
               </div>
             </div>
           ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* System Logs */}
-      <div className="chart-container">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
-          <Terminal className="w-5 h-5" />
-          <span>Recent System Logs</span>
-        </h3>
-        <div className="bg-bg-tertiary rounded-lg p-4 max-h-96 overflow-y-auto">
-          <div className="space-y-2 font-mono text-xs">
-            {logsData?.logs && logsData.logs.length > 0 ? (
-              logsData.logs.slice().reverse().map((log: any, idx: number) => (
+      {!agentError && (
+        <div className="chart-container">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
+            <Terminal className="w-5 h-5" />
+            <span>Recent System Logs</span>
+          </h3>
+          <div className="bg-bg-tertiary rounded-lg p-4 max-h-96 overflow-y-auto">
+            {logsLoading ? (
+              <div className="text-center py-8 text-txt-secondary">Loading logs...</div>
+            ) : logsError ? (
+              <div className="text-center py-8">
+                <AlertCircle className="w-12 h-12 text-txt-secondary mx-auto mb-3" />
+                <p className="text-txt-secondary">Unable to load system logs. Start the backend to view agent activity.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 font-mono text-xs">
+                {logsData?.logs && logsData.logs.length > 0 ? (
+                  logsData.logs.slice().reverse().map((log: any, idx: number) => (
                 <div key={idx} className="flex items-start space-x-3 pb-2 border-b border-brand-cyan/10">
                   <span className="text-txt-secondary whitespace-nowrap">
                     {new Date(log.timestamp * 1000).toLocaleTimeString()}
@@ -140,9 +168,11 @@ const AgentMonitor: React.FC = () => {
                 No logs available
               </div>
             )}
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

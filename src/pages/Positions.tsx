@@ -3,9 +3,10 @@ import React from 'react';
 import { useAPI } from '../hooks/useAPI';
 import { TrendingUp, TrendingDown, DollarSign, Target, AlertCircle, PieChart as PieChartIcon } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { MetricCardSkeleton, ChartSkeleton, TableRowSkeleton } from '../components/Skeleton';
 
 const Positions: React.FC = () => {
-  const { data: positionsData } = useAPI('/api/positions/active');
+  const { data: positionsData, loading, error } = useAPI('/api/positions/active');
   const { data: performanceData } = useAPI('/api/performance/summary');
 
   // Calculate portfolio allocation data
@@ -31,50 +32,68 @@ const Positions: React.FC = () => {
       </div>
 
       {/* Portfolio Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Total Value</h3>
-            <DollarSign className="w-5 h-5 text-brand-cyan" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {loading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : error ? (
+          <div className="col-span-full brand-card text-center py-12">
+            <PieChartIcon className="w-16 h-16 text-txt-secondary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Unable to Load Positions</h3>
+            <p className="text-txt-secondary">Start the backend to view your portfolio positions.</p>
           </div>
-          <p className="text-2xl font-bold text-white">
-            ${positionsData?.total_value?.toFixed(2) || '0.00'}
-          </p>
-        </div>
+        ) : (
+          <>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Total Value</h3>
+                <DollarSign className="w-5 h-5 text-brand-cyan" />
+              </div>
+              <p className="text-2xl font-bold text-white">
+                ${positionsData?.total_value?.toFixed(2) || '0.00'}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Unrealized P&L</h3>
-            <TrendingUp className="w-5 h-5 text-success" />
-          </div>
-          <p className={`text-2xl font-bold ${(positionsData?.unrealized_pnl || 0) >= 0 ? 'text-success' : 'text-error'}`}>
-            ${positionsData?.unrealized_pnl?.toFixed(2) || '0.00'}
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Unrealized P&L</h3>
+                <TrendingUp className="w-5 h-5 text-success" />
+              </div>
+              <p className={`text-2xl font-bold ${(positionsData?.unrealized_pnl || 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                ${positionsData?.unrealized_pnl?.toFixed(2) || '0.00'}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Open Positions</h3>
-            <Target className="w-5 h-5 text-brand-purple" />
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {positionsData?.positions?.length || 0}
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Open Positions</h3>
+                <Target className="w-5 h-5 text-brand-purple" />
+              </div>
+              <p className="text-2xl font-bold text-white">
+                {positionsData?.positions?.length || 0}
+              </p>
+            </div>
 
-        <div className="metric-card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-txt-secondary text-sm font-medium">Avg Return</h3>
-            <AlertCircle className="w-5 h-5 text-warning" />
-          </div>
-          <p className={`text-2xl font-bold ${(positionsData?.avg_return || 0) >= 0 ? 'text-success' : 'text-error'}`}>
-            {positionsData?.avg_return?.toFixed(2) || '0.00'}%
-          </p>
-        </div>
+            <div className="metric-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-txt-secondary text-sm font-medium">Avg Return</h3>
+                <AlertCircle className="w-5 h-5 text-warning" />
+              </div>
+              <p className={`text-2xl font-bold ${(positionsData?.avg_return || 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                {positionsData?.avg_return?.toFixed(2) || '0.00'}%
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Portfolio Visualizations */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {!error && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Portfolio Allocation */}
         <div className="chart-container">
           <h3 className="text-lg font-semibold text-white mb-4">Portfolio Allocation</h3>
@@ -128,10 +147,12 @@ const Positions: React.FC = () => {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+        </div>
+      )}
 
       {/* Positions Table */}
-      <div className="chart-container">
+      {!error && (
+        <div className="chart-container">
         <h3 className="text-lg font-semibold text-white mb-4">Active Positions</h3>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -178,7 +199,8 @@ const Positions: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 };
