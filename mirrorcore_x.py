@@ -657,7 +657,7 @@ class SignalEncoder:
             'ichimoku_bullish', 'vwap_bullish', 'ema_crossover'
         ]
         self.fitted = False
-    
+
     def encode(self, df: pd.DataFrame) -> np.ndarray:
         for col in self.feature_names:
             if col not in df.columns:
@@ -676,12 +676,12 @@ class SignalEncoder:
         else:
             normalized = self.scaler.transform(features)
         return normalized.astype(np.float32)
-    
+
     def transform_live(self, latest_data: Dict) -> np.ndarray:
         row = np.array([[latest_data.get(k, self._get_default_value(k)) 
                         for k in self.feature_names]])
         return self.scaler.transform(row).astype(np.float32)
-    
+
     def _get_default_value(self, feature: str) -> float:
         if 'bullish' in feature or 'crossover' in feature:
             return 0.0
@@ -707,7 +707,7 @@ class TradingEnvironment(gym.Env):
             low=-np.inf, high=np.inf, shape=(self.lookback, n_features + portfolio_features), dtype=np.float32
         )
         self.reset()
-    
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = self.lookback
@@ -723,23 +723,23 @@ class TradingEnvironment(gym.Env):
         self.action_history = []
         self.reward_history = []
         return self._get_observation(), {}
-    
+
     def step(self, action: np.ndarray):
         if self.current_step >= self.max_steps:
             return self._get_observation(), 0.0, True, False, {}
-        
+
         target_position = np.clip(action[0], -1.0, 1.0)
         position_change = target_position - self.position
         current_price = self.price_data[self.current_step]
         reward = 0.0
-        
+
         if abs(position_change) > 0.01:
             reward += self._execute_trade(position_change, current_price)
-        
+
         if self.position != 0:
             price_change = (current_price - self.entry_price) / self.entry_price
             self.total_pnl = self.position * price_change * self.balance
-        
+
         self.balance = self.initial_balance + self.total_pnl
         self.max_balance = max(self.max_balance, self.balance)
         reward += self._calculate_reward(current_price)
@@ -748,7 +748,7 @@ class TradingEnvironment(gym.Env):
         self.position_history.append(self.position)
         self.action_history.append(target_position)
         self.reward_history.append(reward)
-        
+
         done = (self.current_step >= self.max_steps or self.balance <= self.initial_balance * 0.5)
         info = {
             'balance': self.balance,
@@ -759,12 +759,12 @@ class TradingEnvironment(gym.Env):
             'drawdown': (self.max_balance - self.balance) / self.max_balance
         }
         return self._get_observation(), reward, done, False, info
-    
+
     def _execute_trade(self, position_change: float, current_price: float) -> float:
         trade_cost = abs(position_change) * self.config.transaction_cost * self.balance
         old_position = self.position
         self.position = np.clip(self.position + position_change, -1.0, 1.0)
-        
+
         if abs(self.position) > 0.01:
             if abs(old_position) < 0.01:
                 self.entry_price = current_price
@@ -773,36 +773,36 @@ class TradingEnvironment(gym.Env):
                 new_value = abs(position_change) * current_price
                 total_volume = abs(old_position) + abs(position_change)
                 self.entry_price = (old_value + new_value) / total_volume
-        
+
         if abs(old_position) > 0.01 and abs(self.position) < 0.01:
             price_change = (current_price - self.entry_price) / self.entry_price
             trade_pnl = old_position * price_change * self.balance
             self.trade_count += 1
             if trade_pnl > 0:
                 self.win_count += 1
-        
+
         return -trade_cost / self.initial_balance
-    
+
     def _calculate_reward(self, current_price: float) -> float:
         reward = 0.0
         if len(self.balance_history) > 1:
             balance_return = (self.balance - self.balance_history[-2]) / self.balance_history[-2]
             reward += balance_return * self.config.return_reward_weight
-        
+
         if len(self.balance_history) > 10:
             returns = np.diff(self.balance_history[-10:]) / np.array(self.balance_history[-11:-1])
             if len(returns) > 1 and np.std(returns) > 0:
                 sharpe_approx = np.mean(returns) / np.std(returns)
                 reward += sharpe_approx * self.config.sharpe_reward_weight
-        
+
         drawdown = (self.max_balance - self.balance) / self.max_balance
         if drawdown > 0.1:
             reward -= drawdown * self.config.drawdown_penalty
-        
+
         risk_penalty = abs(self.position) ** 2 * self.config.risk_penalty
         reward -= risk_penalty
         return float(reward * self.config.reward_scaling)
-    
+
     def _get_observation(self) -> np.ndarray:
         start_idx = max(0, self.current_step - self.lookback)
         market_features = self.market_data[start_idx:self.current_step]
@@ -813,11 +813,11 @@ class TradingEnvironment(gym.Env):
             (self.max_balance - self.balance) / self.max_balance
         ]])
         portfolio_features = np.repeat(portfolio_state, self.lookback, axis=0)
-        
+
         if market_features.shape[0] < self.lookback:
             padding = np.zeros((self.lookback - market_features.shape[0], market_features.shape[1]))
             market_features = np.vstack([padding, market_features])
-        
+
         return np.concatenate([market_features, portfolio_features], axis=1).astype(np.float32)
 
 class RLTradingAgent:
@@ -829,42 +829,42 @@ class RLTradingAgent:
         self.is_trained = False
         if model_path and RL_AVAILABLE:
             self.load_model(model_path)
-    
+
     def prepare_training_data(self, scanner_results: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         if hasattr(scanner_results, 'fear_greed_history') and len(scanner_results.fear_greed_history) > 0:
             scanner_results['fear_greed'] = scanner_results.fear_greed_history[-1]
         else:
             scanner_results['fear_greed'] = 50
-        
+
         if hasattr(scanner_results, 'btc_dominance_history') and len(scanner_results.btc_dominance_history) > 0:
             scanner_results['btc_dominance'] = scanner_results.btc_dominance_history[-1]
         else:
             scanner_results['btc_dominance'] = 50
-        
+
         scanner_results['volatility'] = scanner_results['momentum_short'].rolling(5).std().fillna(0)
-        
+
         for col in ['ichimoku_bullish', 'vwap_bullish', 'ema_crossover']:
             if col not in scanner_results.columns:
                 scanner_results[col] = 0.0
             else:
                 scanner_results[col] = scanner_results[col].astype(float)
-        
+
         market_features = self.encoder.encode(scanner_results)
         price_data = np.array(scanner_results['price'].values, dtype=np.float32)
         return market_features, price_data
-    
+
     def create_environment(self, market_data: np.ndarray, price_data: np.ndarray) -> TradingEnvironment:
         return TradingEnvironment(market_data=market_data, price_data=price_data, config=self.config)
-    
+
     def train(self, scanner_results: pd.DataFrame, save_path: str = 'rl_trading_model', verbose: int = 1):
         if not RL_AVAILABLE:
             logger.warning("RL training skipped - stable_baselines3 not available")
             return {'training_completed': False, 'error': 'RL not available'}
-        
+
         logger.info(f"Starting RL training with {self.algorithm}")
         market_data, price_data = self.prepare_training_data(scanner_results)
         env = self.create_environment(market_data, price_data)
-        
+
         if not RL_AVAILABLE:
             raise ImportError("stable_baselines3 PPO is not available")
         from stable_baselines3 import PPO
@@ -883,11 +883,11 @@ class RLTradingAgent:
             'algorithm': self.algorithm,
             'final_model_path': save_path
         }
-    
+
     def predict(self, observation: np.ndarray, deterministic: bool = True) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         if not self.is_trained or self.model is None:
             raise ValueError("Model must be trained before making predictions")
-        
+
         result = self.model.predict(observation, deterministic=deterministic)
         if isinstance(result, tuple) and len(result) == 2:
             action, state = result
@@ -896,7 +896,7 @@ class RLTradingAgent:
             return action, state
         else:
             return result, None
-    
+
     def save_model(self, path: str):
         if self.model is None or not RL_AVAILABLE:
             raise ValueError("No model to save or RL not available")
@@ -904,7 +904,7 @@ class RLTradingAgent:
         with open(f"{path}_encoder.pkl", 'wb') as f:
             pickle.dump(self.encoder, f)
         logger.info(f"Model and encoder saved to {path}")
-    
+
     def load_model(self, path: str):
         if not RL_AVAILABLE or pickle is None:
             logger.warning("Cannot load model - RL not available")
@@ -924,12 +924,12 @@ class MetaController:
     def __init__(self, strategy: str = "confidence_blend"):
         self.strategy = strategy
         self.performance_history = []
-    
+
     def decide(self, rule_decision: str, rl_action: np.ndarray, confidence_score: float = 0.5, 
                market_regime: str = "normal") -> Dict[str, Any]:
         rule_position = self._rule_to_position(rule_decision)
         rl_position = float(rl_action[0]) if isinstance(rl_action, np.ndarray) else rl_action
-        
+
         if self.strategy == "confidence_blend":
             if confidence_score > 0.7:
                 final_position = 0.7 * rl_position + 0.3 * rule_position
@@ -943,7 +943,7 @@ class MetaController:
         else:
             final_position = 0.5 * rl_position + 0.5 * rule_position
             method = "balanced"
-        
+
         final_position = np.clip(final_position, -1.0, 1.0)
         decision = {
             'final_position': final_position,
@@ -955,7 +955,7 @@ class MetaController:
         }
         self.performance_history.append(decision)
         return decision
-    
+
     def _rule_to_position(self, rule_decision: str) -> float:
         signal_map = {
             'Strong Buy': 1.0, 'Buy': 0.6, 'Weak Buy': 0.3, 'Neutral': 0.0,
@@ -966,7 +966,7 @@ class MetaController:
 
 class RLIntegrationLayer:
     """Layer that integrates RL capabilities with existing system"""
-    
+
     def __init__(self, sync_bus, scanner):
         self.sync_bus = sync_bus
         self.scanner = scanner
@@ -977,12 +977,12 @@ class RLIntegrationLayer:
             'meta_decisions_count': 0,
             'integration_success_rate': 0.0
         }
-        
+
         if RL_AVAILABLE:
             self._initialize_rl_components()
-        
+
         logger.info(f"RL Integration Layer initialized (RL Available: {RL_AVAILABLE})")
-    
+
     def _initialize_rl_components(self):
         """Initialize RL components if available"""
         try:
@@ -1004,20 +1004,20 @@ class RLIntegrationLayer:
             logger.error(f"RL component initialization failed: {e}")
             self.rl_agent = None
             self.meta_controller = None
-    
+
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update RL integration layer"""
         if not RL_AVAILABLE or not self.rl_agent:
             return {}
-        
+
         try:
             scanner_data = data.get('scanner_data', [])
             if not scanner_data:
                 return {}
-            
+
             scanner_df = pd.DataFrame(scanner_data)
             rl_predictions = []
-            
+
             if self.rl_agent.is_trained:
                 for _, row in scanner_df.iterrows():
                     try:
@@ -1025,7 +1025,7 @@ class RLIntegrationLayer:
                         obs_array = self.rl_agent.encoder.transform_live(observation_data)
                         dummy_obs = np.repeat(obs_array, self.rl_agent.config.lookback_window, axis=0)
                         rl_action, _ = self.rl_agent.predict(dummy_obs, deterministic=True)
-                        
+
                         rl_predictions.append({
                             'symbol': row['symbol'],
                             'rl_position': float(rl_action[0]),
@@ -1035,18 +1035,18 @@ class RLIntegrationLayer:
                     except Exception as e:
                         logger.error(f"RL prediction failed for {row.get('symbol', 'unknown')}: {e}")
                         continue
-                
+
                 self.integration_metrics['rl_predictions_count'] += len(rl_predictions)
-            
+
             if rl_predictions:
                 await self.sync_bus.update_state('rl_predictions', rl_predictions)
-            
+
             return {'rl_predictions': rl_predictions}
-            
+
         except Exception as e:
             logger.error(f"RL integration update failed: {e}")
             return {}
-    
+
     def _prepare_rl_observation(self, row: pd.Series) -> Dict[str, float]:
         """Prepare observation data for RL agent"""
         return {
@@ -1068,12 +1068,12 @@ class RLIntegrationLayer:
             'vwap_bullish': 0.0,
             'ema_crossover': 0.0
         }
-    
+
     async def train_rl_agent(self, historical_data: pd.DataFrame) -> Dict[str, Any]:
         """Train RL agent with historical data"""
         if not RL_AVAILABLE or not self.rl_agent:
             return {'status': 'rl_not_available'}
-        
+
         try:
             logger.info("Starting RL agent training...")
             training_results = self.rl_agent.train(
@@ -1082,7 +1082,7 @@ class RLIntegrationLayer:
             )
             logger.info("RL agent training completed")
             return training_results
-            
+
         except Exception as e:
             logger.error(f"RL training failed: {e}")
             return {'status': 'training_failed', 'error': str(e)}
@@ -1090,13 +1090,13 @@ class RLIntegrationLayer:
 # Merged PerceptionLayer from mirrax
 class PerceptionLayer:
     """Processes market and scanner data for downstream agents."""
-    
+
     def __init__(self, scanner: MomentumScanner, sync_bus: 'HighPerformanceSyncBus'):
         self.scanner = scanner
         self.sync_bus = sync_bus
         self.last_update = 0.0
         logger.info("PerceptionLayer initialized")
-    
+
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update perception with enhanced scanner and market data."""
         try:
@@ -1107,26 +1107,26 @@ class PerceptionLayer:
             if scanner_df.empty:
                 logger.warning("Scanner returned empty DataFrame")
                 return {}
-            
+
             required_cols = ['symbol']
             price_cols = ['close', 'price']
             has_price = any(col in scanner_df.columns for col in price_cols)
-            
+
             if not all(col in scanner_df.columns for col in required_cols) or not has_price:
                 logger.error(f"Scanner DataFrame missing required columns. Available: {scanner_df.columns.tolist()}")
                 return {}
-            
+
             scanner_data = []
             for idx, row in scanner_df.iterrows():
                 try:
                     row_dict = row.to_dict()
                     symbol = row_dict.get('symbol')
                     price = row_dict.get('price') or row_dict.get('close')
-                    
+
                     if not symbol or price is None:
                         logger.warning(f"Malformed scanner row at index {idx}: missing symbol or price")
                         continue
-                    
+
                     enhanced_data = {
                         'symbol': symbol,
                         'price': float(price),
@@ -1142,13 +1142,13 @@ class PerceptionLayer:
                         'volatility_regime': row_dict.get('volatility_regime', 'normal'),
                         'momentum_strength': row_dict.get('momentum_strength', 'weak')
                     }
-                    
+
                     scanner_data.append(ScannerOutput(**enhanced_data).model_dump())
                 except Exception as row_exc:
                     logger.error(f"Error processing scanner row at index {idx}: {row_exc}")
-            
+
             await self.sync_bus.update_state('scanner_data', scanner_data)
-            
+
             market_data = data.get('market_data', [])
             validated_data = []
             if market_data:
@@ -1168,11 +1168,11 @@ class PerceptionLayer:
                         validated_data.append(MarketData(**enhanced_md).model_dump())
                     except Exception as md_exc:
                         logger.error(f"Error processing market data at index {i}: {md_exc}")
-            
+
             await self.sync_bus.update_state('market_data', validated_data)
-            
+
             return {'scanner_data': scanner_data, 'market_data': validated_data}
-        
+
         except Exception as e:
             logger.error(f"PerceptionLayer update failed: {str(e)}")
             return {}
@@ -1180,7 +1180,7 @@ class PerceptionLayer:
 # Merged OracleEnhancedMirrorCore from mirrax (adapted to HighPerformanceSyncBus)
 class OracleEnhancedMirrorCore:
     """Integrates scanner, oracle, and trade analyzer for trading decisions."""
-    
+
     def __init__(self, sync_bus, scanner, trade_analyzer):
         self.sync_bus = sync_bus
         self.scanner = scanner
@@ -1191,7 +1191,7 @@ class OracleEnhancedMirrorCore:
             'sentiment': 0.0
         }
         logger.info("OracleEnhancedMirrorCore initialized")
-    
+
     async def _update_market_context(self, scanner_data: List[Dict], trades: List[Dict]) -> None:
         """Update market context."""
         try:
@@ -1202,33 +1202,33 @@ class OracleEnhancedMirrorCore:
                     np.mean(scanner_df['price'].tail(10))
                 ) if len(scanner_df) >= 10 else 0.0
                 self.market_context['sentiment'] = scanner_df['momentum_7d'].mean()
-            
+
             self.market_context['portfolio_value'] = self.trade_analyzer.get_total_pnl() + 10000.0
             await self.sync_bus.update_state('market_context', self.market_context)
             logger.debug(f"Market context: volatility={self.market_context['volatility']:.4f}, portfolio={self.market_context['portfolio_value']:.2f}")
-        
+
         except Exception as e:
             logger.error(f"Market context update failed: {str(e)}")
-    
+
     async def enhanced_tick(self, oracle: TradingOracleEngine, trading_bot: TradingBot) -> Dict[str, Any]:
         """Process a tick integrating scanner, oracle, and bot."""
         try:
             scanner_data = await self.sync_bus.get_state('scanner_data') or []
             trades = await self.sync_bus.get_state('trades') or []
             rl_predictions = await self.sync_bus.get_state('rl_predictions') or []
-            
+
             await self._update_market_context(scanner_data, trades)
             directives = await oracle.evaluate_trading_timelines(self.market_context, scanner_data, rl_predictions)
-            
+
             execution_results = []
             for directive in directives:
                 result = await trading_bot.process_directive(directive)
                 if result:
                     execution_results.append(result)
-            
+
             logger.info(f"Enhanced tick: {len(directives)} directives, {len(execution_results)} executed")
             return {'directives': directives, 'executions': execution_results}
-        
+
         except Exception as e:
             logger.error(f"Enhanced tick failed: {str(e)}")
             return {'error': str(e)}
@@ -1236,7 +1236,7 @@ class OracleEnhancedMirrorCore:
 # Merged ReflectionCore from both versions (combined logic)
 class ReflectionCore:
     """Reflects on performance and adjusts strategies. Merged from both versions."""
-    
+
     def __init__(self, trade_analyzer: TradeAnalyzerAgent, strategy_trainer: StrategyTrainerAgent):
         self.trade_analyzer = trade_analyzer
         self.strategy_trainer = strategy_trainer
@@ -1250,19 +1250,19 @@ class ReflectionCore:
         self.wins = 0
         self.losses = 0
         logger.info("ReflectionCore initialized")
-    
+
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update strategy performance. Merged logic."""
         try:
             trades = data.get('trades', [])
             for trade in trades[-10:]:
                 self.strategy_trainer.update_performance(trade['strategy'], trade['pnl'])
-            
+
             grades = self.strategy_trainer.grade_strategies()
-            
+
             logger.debug(f"Reflection updated: {len(grades)} strategies graded")
             return {'strategy_grades': grades}
-        
+
         except Exception as e:
             logger.error(f"ReflectionCore update failed: {str(e)}")
             return {}
@@ -1341,18 +1341,18 @@ class MirrorMindMetaAgent:
         self.history = []
         self.session_grades = []
         logger.info("MirrorMindMetaAgent initialized")
-    
+
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Monitor performance and trigger optimization."""
         try:
             drawdown_stats = self.trade_analyzer.get_drawdown_stats() or {}
             current_drawdown = drawdown_stats.get('current_drawdown', 0.0)
             current_time = time.time()
-            
+
             if not self.arch_ctrl.allow_action():
                 logger.warning("Optimization skipped: emotional state unstable")
                 return {'optimization_triggered': False}
-            
+
             if (
                 current_drawdown < self.max_drawdown_trigger or
                 current_time - self.last_optimization > self.optimization_interval
@@ -1379,9 +1379,9 @@ class MirrorMindMetaAgent:
                     logger.error(f"Optimization failed: {opt_exc}")
                     return {'optimization_triggered': False}
             return {'optimization_triggered': False}
-            
+
             return {'optimization_triggered': False}
-        
+
         except Exception as e:
             logger.error(f"MirrorMindMetaAgent update failed: {str(e)}")
             return {'optimization_triggered': False}
@@ -1488,10 +1488,19 @@ class MirrorMindMetaAgent:
         else:
             print(" - No grades recorded.")
 
+    def _attempt_restart(self, agent_id: str, delay: int = 5):
+        """Helper to simulate agent restart by resetting circuit breaker"""
+        if agent_id in self.sync_bus.circuit_breakers:
+            self.sync_bus.circuit_breakers[agent_id]['is_open'] = False
+            self.sync_bus.circuit_breakers[agent_id]['failure_count'] = 0
+            logger.info(f"Circuit breaker reset for agent {agent_id} to attempt restart.")
+            # Optionally, could trigger a reconnection or re-initialization logic here.
+
+
 # Merged RiskSentinel from both versions (combined parameters)
 class RiskSentinel:
     """Enforces risk limits for trading operations."""
-    
+
     def __init__(self, max_drawdown: float = -0.2, max_position_limit: float = 0.1, max_loss_per_trade: float = -0.05, max_drawdown_pct: float = -0.10, max_open_positions: int = 5):
         self.max_drawdown = max_drawdown
         self.max_position_limit = max_position_limit
@@ -1502,19 +1511,19 @@ class RiskSentinel:
         self.max_open_positions = max_open_positions
         self.risk_block = False 
         logger.info("RiskSentinel initialized")
-    
+
     async def check_risk(self, trade_analyzer: TradeAnalyzerAgent, positions: Dict[str, float], directive: Dict[str, Any]) -> bool:
         """Check risk limits."""
         try:
             drawdown_stats = trade_analyzer.get_drawdown_stats() or {}
             current_drawdown = drawdown_stats.get('current_drawdown', 0.0)
-            
+
             if current_drawdown < self.max_drawdown:
                 alert = f"Max drawdown breached: {current_drawdown:.4f} < {self.max_drawdown:.4f}"
                 self.alerts.append(alert)
                 logger.warning(alert)
                 return False
-            
+
             total_position = sum(abs(pos) for pos in positions.values())
             new_position = directive.get('amount', 0.0) / directive.get('price', 1.0)
             if total_position + new_position > self.max_position_limit:
@@ -1522,7 +1531,7 @@ class RiskSentinel:
                 self.alerts.append(alert)
                 logger.warning(alert)
                 return False
-            
+
             potential_loss = -new_position * directive.get('price', 1.0) * 0.05
             portfolio_value = trade_analyzer.get_total_pnl() + 10000.0
             if potential_loss / portfolio_value < self.max_loss_per_trade:
@@ -1530,12 +1539,12 @@ class RiskSentinel:
                 self.alerts.append(alert)
                 logger.warning(alert)
                 return False
-            
+
             if len(self.alerts) > self.max_alerts:
                 self.alerts.pop(0)
-            
+
             return True
-        
+
         except Exception as e:
             logger.error(f"Risk check failed: {str(e)}")
             return False
@@ -1622,7 +1631,7 @@ class LiveMarketDataFeed:
             await self.exchange.close()
             # logger.debug(f"Generated data: {symbol} @ {self.base_price:.2f}, vol={self.base_volume:.2f}")
             return None
-        
+
         # Removed unreachable/invalid except block and undefined symbol
 
 # Merged IntegratedTradingSystem from mirrax
@@ -1632,13 +1641,13 @@ class IntegratedTradingSystem:
         self.rl_agent = rl_agent
         self.meta_controller = meta_controller
         self.trading_history = []
-    
+
     async def generate_signals(self, timeframe: str = 'daily') -> pd.DataFrame:
         scanner_results = self.scanner.scan_market(timeframe=timeframe)
         if scanner_results.empty:
             logger.warning("No scanner results available")
             return pd.DataFrame()
-        
+
         signals_df = scanner_results.copy()
         if self.rl_agent.is_trained:
             rl_positions = []
@@ -1669,7 +1678,7 @@ class IntegratedTradingSystem:
             signals_df['rl_position'] = rl_positions
         else:
             signals_df['rl_position'] = 0.0
-        
+
         meta_decisions = []
         for _, row in signals_df.iterrows():
             decision = self.meta_controller.decide(
@@ -1679,11 +1688,11 @@ class IntegratedTradingSystem:
                 market_regime=self._detect_market_regime(row)
             )
             meta_decisions.append(decision)
-        
+
         meta_df = pd.DataFrame(meta_decisions)
         signals_df = pd.concat([signals_df, meta_df], axis=1)
         return signals_df
-    
+
     def _detect_market_regime(self, row: pd.Series) -> str:
         volatility = abs(row['momentum_short'])
         trend_strength = row['trend_score']
@@ -1692,14 +1701,14 @@ class IntegratedTradingSystem:
         elif trend_strength > 7:
             return "trending"
         return "normal"
-    
+
     async def execute_trading_session(self, timeframe: str = 'daily', dry_run: bool = True) -> Dict[str, Any]:
         logger.info(f"Starting integrated trading session - timeframe: {timeframe}, dry_run: {dry_run}")
         try:
             signals = await self.generate_signals(timeframe)
             if signals.empty:
                 return {'status': 'no_signals', 'trades': []}
-            
+
             actionable = signals[abs(signals['final_position']) > 0.1]
             trades = []
             for _, signal in actionable.iterrows():
@@ -1719,7 +1728,7 @@ class IntegratedTradingSystem:
                 }
                 trades.append(trade)
                 self.trading_history.append(trade)
-            
+
             session_result = {
                 'status': 'completed',
                 'timeframe': timeframe,
@@ -1735,15 +1744,15 @@ class IntegratedTradingSystem:
         except Exception as e:
             logger.error(f"Trading session failed: {e}")
             return {'status': 'error', 'error': str(e)}
-    
+
     def get_performance_report(self) -> Dict[str, Any]:
         """Generate performance report from trading history."""
         if not self.trading_history:
             return {'total_trades': 0, 'execution_rate': 0.0}
-        
+
         total_trades = len(self.trading_history)
         executed_trades = len([t for t in self.trading_history if t.get('executed', False)])
-        
+
         return {
             'total_trades': total_trades,
             'execution_rate': executed_trades / total_trades if total_trades > 0 else 0.0,
@@ -2345,7 +2354,7 @@ class HighPerformanceSyncBus:
 
             # Get relevant state for agent
             relevant_state = await self.get_relevant_states(agent_id)
-            
+
             # Update agent
             if hasattr(agent, 'update'):
                 return await agent.update(relevant_state)
@@ -2434,7 +2443,7 @@ class HighPerformanceSyncBus:
             await self.send_command(agent_id, command, params)
 
 
-# --- Enhanced Console Monitor ---
+# --- Console Monitor ---
 class ConsoleMonitor:
     """Enhanced console monitoring with agent grid display"""
 
@@ -2476,7 +2485,7 @@ class ConsoleMonitor:
         # System health summary
         system_health = await self.syncbus.get_state('system_health')
         if system_health:
-            print(f"\nSystem Health: {system_health['healthy_agents']}/{system_health['total_agents']} agents healthy")
+            print(f"\nSystem Health: {system_health['active_agents']}/{system_health['total_agents']} agents healthy")
             print(f"Health Score: {system_health['health_score']:.2f}")
             print(f"Performance Metrics: Ticks={system_health['performance_metrics']['total_ticks']}, "
                   f"Failed Updates={system_health['performance_metrics']['failed_updates']}, "
@@ -2676,10 +2685,16 @@ class MirrorAgent:
         })
 
 # --- System Creation Function ---
-async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True, 
-                                     enable_oracle: bool = True, 
-                                     enable_bayesian: bool = True,
-                                     enable_imagination: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
+async def create_mirrorcore_system(
+    dry_run: bool = True, 
+    use_testnet: bool = True, 
+    enable_oracle: bool = True, 
+    enable_bayesian: bool = True, 
+    enable_imagination: bool = True, 
+    enable_parallel_scanner: bool = False,
+    enable_advanced_strategies: bool = True,
+    risk_profile: str = 'moderate'
+) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
     """Create MirrorCore-X system with emergency controls, audit logging, and enhancement engines"""
 
     # Load secrets from environment
@@ -2819,6 +2834,20 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         # Create comprehensive optimizer
         comprehensive_optimizer = ProductionSafeMirrorOptimizer(all_components)
 
+        # Initialize enhanced ensemble if enabled
+        ensemble_manager = None
+        if enable_advanced_strategies:
+            try:
+                from ensemble_integration import create_enhanced_ensemble
+                ensemble_manager = await create_enhanced_ensemble(
+                    strategy_trainer, 
+                    sync_bus, 
+                    risk_profile=risk_profile
+                )
+                logger.info("Enhanced ensemble manager initialized")
+            except ImportError:
+                logger.warning("Ensemble integration not available")
+
         # Attach agents to SyncBus
         sync_bus.attach('scanner', scanner)
         sync_bus.attach('strategy_trainer', strategy_trainer)
@@ -2839,6 +2868,8 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         sync_bus.attach('integrated_trading_system', integrated_trading_system)
         sync_bus.attach('mirror_core', mirror_core)
         sync_bus.attach('comprehensive_optimizer', comprehensive_optimizer)
+        if ensemble_manager: # Attach ensemble manager if created
+             sync_bus.attach('ensemble_manager', ensemble_manager)
 
         # Register strategies (assuming these agents exist)
         # Register core strategies
@@ -2846,7 +2877,7 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         strategy_trainer.register_strategy("GRADIENT_TREND", GradientTrendAgent())
         strategy_trainer.register_strategy("VBSR", SupportResistanceAgent())
 
-        # Register all additional strategies
+        # Register additional strategies
         strategy_trainer.register_strategy("MEAN_REVERSION", MeanReversionAgent())
         strategy_trainer.register_strategy("MOMENTUM_BREAKOUT", MomentumBreakoutAgent())
         strategy_trainer.register_strategy("VOLATILITY_REGIME", VolatilityRegimeAgent())
@@ -2877,7 +2908,8 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
             'perception': perception,
             'rl_integration': rl_integration,
             'integrated_trading_system': integrated_trading_system,
-            'mirror_core': mirror_core
+            'mirror_core': mirror_core,
+            'ensemble_manager': ensemble_manager # Include ensemble manager in components
         }
 
     except Exception as e:
@@ -2896,7 +2928,7 @@ if __name__ == "__main__":
     async def main():
         # Set dry_run to True for simulation, False for live trading
         # Set use_testnet to True to use the exchange's test network
-        sync_bus, components = await create_mirrorcore_system(dry_run=True, use_testnet=False)
+        sync_bus, components = await create_mirrorcore_system(dry_run=True, use_testnet=False, enable_advanced_strategies=True, risk_profile='aggressive')
 
         data_pipeline = components['data_pipeline']
         exchange = components['exchange']
@@ -2956,21 +2988,21 @@ if __name__ == "__main__":
                         logger.info(f"Trade executed: {trade['symbol']}, Position: {trade['final_position']:.2f}, Method: {trade['method']}")
 
                 await asyncio.sleep(tick_interval)
-                
+
                 if i % 20 == 0:
                     if integrated_trading_system.trading_history:
                         performance = integrated_trading_system.get_performance_report()
-                        print(f"[RL Performance] Total Trades: {performance['total_trades']}, Execution Rate: {performance['execution_rate']:.2f}")
-                
+                        logger.info(f"[RL Performance] Total Trades: {performance['total_trades']}, Execution Rate: {performance['execution_rate']:.2f}")
+
                 if (i + 1) % 10 == 0:
                     trade_analyzer.summary(top_n=3)
                     grades = await sync_bus.get_state('strategy_grades') or {}
                     perf = await sync_bus.get_state('system_performance') or {}
                     logger.info(f"Tick {i+1}/{ticks}: {len(grades)} strategies, pnl={perf.get('pnl', 0.0):.2f}")
-            
+
             trade_analyzer.performance_metrics()
             trade_analyzer.export_to_csv("trade_log_final.csv")
-            
+
             logger.info("Demo session completed")
 
         # Run the mock generator

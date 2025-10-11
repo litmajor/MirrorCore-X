@@ -729,6 +729,46 @@ async def get_performance_summary():
         logger.error(f"Error in performance summary: {e}")
         return {"error": str(e)}
 
+@app.get("/api/ensemble/status")
+async def get_ensemble_status():
+    """Get ensemble manager status and weights"""
+    try:
+        components = global_state.get('components')
+        if not components:
+            return {"error": "System not initialized"}
+        
+        ensemble_manager = components.get('ensemble_manager')
+        if not ensemble_manager:
+            return {"error": "Ensemble manager not available"}
+        
+        status = ensemble_manager.get_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting ensemble status: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/ensemble/weights")
+async def get_ensemble_weights():
+    """Get current strategy weights"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        if not sync_bus:
+            return {"weights": {}}
+        
+        weights = await sync_bus.get_state('ensemble_weights') or {}
+        regime = await sync_bus.get_state('market_regime') or 'unknown'
+        
+        return {
+            "regime": regime,
+            "weights": weights,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting ensemble weights: {e}")
+        return {"error": str(e)}
+
+
 @app.get("/api/strategies")
 async def get_strategies():
     """Get all active strategies from strategy trainer"""
