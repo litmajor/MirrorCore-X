@@ -13,6 +13,11 @@ const Landing: React.FC = () => {
       description: "19+ specialized trading strategies working in harmony, powered by Bayesian optimization and ensemble learning"
     },
     {
+      icon: MessageCircle,
+      title: "Mirrax AI Assistant",
+      description: "Conversational AI that explains performance, analyzes markets, and provides actionable insights in real-time"
+    },
+    {
       icon: Sparkles,
       title: "Oracle & Imagination Engine",
       description: "Predictive AI that simulates 1000+ future market scenarios to stress-test every decision"

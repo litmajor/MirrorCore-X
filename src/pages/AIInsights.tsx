@@ -13,6 +13,7 @@ const AIInsights: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showProactiveInsights, setShowProactiveInsights] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -120,11 +121,18 @@ const AIInsights: React.FC = () => {
   return (
     <div className="h-[calc(100vh-80px)] flex flex-col">
       <div className="page-header mb-4">
-        <div className="flex items-center space-x-3">
-          <Sparkles className="w-8 h-8 text-brand-purple" />
-          <div>
-            <h1 className="page-title">AI Insights Assistant</h1>
-            <p className="page-subtitle">Your intelligent trading companion</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Sparkles className="w-8 h-8 text-brand-purple" />
+            <div>
+              <h1 className="page-title">Mirrax AI</h1>
+              <p className="page-subtitle">Your MirrorCore-X Intelligence Assistant</p>
+            </div>
+          </div>
+          <div className="text-sm text-txt-secondary">
+            <span className="px-3 py-1 bg-brand-cyan/20 border border-brand-cyan/30 rounded-full">
+              Multi-Agent Cognitive System
+            </span>
           </div>
         </div>
       </div>
@@ -162,9 +170,16 @@ const AIInsights: React.FC = () => {
             <div className="flex justify-start">
               <div className="bg-bg-surface border border-accent-dark rounded-lg px-4 py-3 max-w-3xl">
                 {renderResponse(msg.response)}
-                <p className="text-xs text-txt-secondary mt-2">
-                  {new Date(msg.timestamp).toLocaleTimeString()}
-                </p>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-accent-dark">
+                  <p className="text-xs text-txt-secondary">
+                    {msg.response.assistant || 'Mirrax AI'} • {new Date(msg.timestamp).toLocaleTimeString()}
+                  </p>
+                  {msg.response.confidence && (
+                    <span className="text-xs text-brand-cyan">
+                      {(msg.response.confidence * 100).toFixed(0)}% confident
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

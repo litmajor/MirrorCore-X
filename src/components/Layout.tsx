@@ -44,7 +44,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/agent-monitor', icon: Brain, label: 'Agent Monitor' },
     { path: '/rl-agent', icon: Brain, label: 'RL Agent' },
     { path: '/audit', icon: Shield, label: 'Audit Trail' },
-    { path: '/ai-insights', icon: MessageCircle, label: 'AI Insights' },
+    { path: '/ai-insights', icon: MessageCircle, label: 'Mirrax AI' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
