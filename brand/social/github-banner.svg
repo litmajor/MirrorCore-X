@@ -1,0 +1,36 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0A0E27;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1A1F3A;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00D9FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7B2FFF;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="1280" height="640" fill="url(#bgGrad)"/>
+  
+  <!-- Animated Grid -->
+  <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+    <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(0, 217, 255, 0.1)" stroke-width="1"/>
+  </pattern>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  
+  <!-- Central Logo -->
+  <circle cx="640" cy="320" r="150" fill="none" stroke="#00D9FF" stroke-width="4"/>
+  <path d="M 520 320 L 640 200 L 640 440 Z" fill="url(#textGrad)" opacity="0.8"/>
+  <path d="M 760 320 L 640 200 L 640 440 Z" fill="url(#textGrad)" opacity="0.6"/>
+  <circle cx="640" cy="320" r="50" fill="none" stroke="url(#textGrad)" stroke-width="5"/>
+  <text x="640" y="340" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="white">X</text>
+  
+  <!-- Brand Text -->
+  <text x="640" y="500" font-family="'Orbitron', sans-serif" font-size="64" font-weight="700" text-anchor="middle" fill="url(#textGrad)">MIRRORCORE-X</text>
+  <text x="640" y="540" font-family="'Rajdhani', sans-serif" font-size="24" text-anchor="middle" fill="#B8BFDC">Multi-Agent Cognitive Trading System</text>
+  
+  <!-- Decorative Code Lines -->
+  <text x="100" y="100" font-family="'JetBrains Mono', monospace" font-size="14" fill="#00D9FF" opacity="0.4">const mirrorCore = new TradingSystem();</text>
+  <text x="900" y="580" font-family="'JetBrains Mono', monospace" font-size="14" fill="#7B2FFF" opacity="0.4">await system.execute();</text>
+</svg>
