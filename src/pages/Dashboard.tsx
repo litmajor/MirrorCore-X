@@ -101,24 +101,24 @@ const Dashboard: React.FC = () => {
             <AreaChart data={wsData?.market_data?.slice(-50) || []}>
               <defs>
                 <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#00D9FF" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#00D9FF" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="timestamp" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#1A1F3A" />
+              <XAxis dataKey="timestamp" stroke="#6B7299" />
+              <YAxis stroke="#6B7299" />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: '#1e293b', 
-                  border: '1px solid #334155',
+                  backgroundColor: '#141B3D', 
+                  border: '1px solid #00D9FF33',
                   borderRadius: '8px'
                 }}
               />
               <Area 
                 type="monotone" 
                 dataKey="price" 
-                stroke="#3b82f6" 
+                stroke="#00D9FF" 
                 fillOpacity={1} 
                 fill="url(#colorPrice)" 
               />
@@ -127,16 +127,16 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Strategy Performance */}
-        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6">
+        <div className="chart-container">
           <h3 className="text-lg font-semibold text-white mb-4">Strategy Performance</h3>
           <div className="space-y-4">
             {Object.entries(wsData?.strategy_grades || {}).map(([name, grade]: [string, any]) => (
               <div key={name} className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className={`w-3 h-3 rounded-full ${grade === 'A' ? 'bg-green-400' : grade === 'B' ? 'bg-yellow-400' : 'bg-red-400'}`} />
-                  <span className="text-slate-300">{name}</span>
+                  <div className={`w-3 h-3 rounded-full ${grade === 'A' ? 'bg-success' : grade === 'B' ? 'bg-warning' : 'bg-error'}`} />
+                  <span className="text-txt-secondary">{name}</span>
                 </div>
-                <span className={`font-bold ${grade === 'A' ? 'text-green-400' : grade === 'B' ? 'text-yellow-400' : 'text-red-400'}`}>
+                <span className={`font-bold ${grade === 'A' ? 'text-success' : grade === 'B' ? 'text-warning' : 'text-error'}`}>
                   {grade}
                 </span>
               </div>

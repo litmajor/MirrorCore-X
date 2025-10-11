@@ -9,17 +9,20 @@ const Strategies: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'bg-green-600/20 text-green-400';
-      case 'paused': return 'bg-yellow-600/20 text-yellow-400';
-      default: return 'bg-slate-600/20 text-slate-400';
+      case 'active': return 'bg-success/20 text-success';
+      case 'paused': return 'bg-warning/20 text-warning';
+      default: return 'bg-neutral/20 text-neutral';
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-white">Trading Strategies</h1>
-        <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium transition-colors">
+      <div className="flex items-center justify-between page-header">
+        <div>
+          <h1 className="page-title">Trading Strategies</h1>
+          <p className="page-subtitle">Manage and monitor active trading strategies</p>
+        </div>
+        <button className="btn-primary">
           Add Strategy
         </button>
       </div>
@@ -28,42 +31,42 @@ const Strategies: React.FC = () => {
         {strategies?.strategies?.map((strategy: any) => (
           <div 
             key={strategy.name}
-            className="bg-slate-800/50 backdrop-blur-xl border border-slate-700 rounded-xl p-6 hover:border-blue-500/50 transition-all cursor-pointer"
+            className="brand-card cursor-pointer"
             onClick={() => setSelectedStrategy(strategy.name)}
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-3">
-                <Layers className="w-6 h-6 text-blue-400" />
+                <Layers className="w-6 h-6 text-brand-cyan" />
                 <h3 className="text-xl font-semibold text-white">{strategy.name}</h3>
               </div>
               <div className="flex items-center space-x-3">
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(strategy.status)}`}>
                   {strategy.status}
                 </span>
-                <button className="p-2 hover:bg-slate-700 rounded-lg transition-colors">
-                  <Settings className="w-5 h-5 text-slate-400" />
+                <button className="p-2 hover:bg-bg-surface rounded-lg transition-colors">
+                  <Settings className="w-5 h-5 text-txt-secondary" />
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
-                <p className="text-slate-400 mb-1">P&L</p>
-                <p className={`font-semibold ${strategy.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <p className="text-txt-secondary mb-1">P&L</p>
+                <p className={`font-semibold ${strategy.pnl >= 0 ? 'text-success' : 'text-error'}`}>
                   ${strategy.pnl?.toFixed(2)}
                 </p>
               </div>
               <div>
-                <p className="text-slate-400 mb-1">Win Rate</p>
+                <p className="text-txt-secondary mb-1">Win Rate</p>
                 <p className="font-semibold text-white">{strategy.win_rate?.toFixed(1)}%</p>
               </div>
               <div>
-                <p className="text-slate-400 mb-1">Status</p>
+                <p className="text-txt-secondary mb-1">Status</p>
                 <div className="flex items-center space-x-2">
                   {strategy.status === 'active' ? (
-                    <Play className="w-4 h-4 text-green-400" />
+                    <Play className="w-4 h-4 text-success" />
                   ) : (
-                    <Pause className="w-4 h-4 text-yellow-400" />
+                    <Pause className="w-4 h-4 text-warning" />
                   )}
                   <span className="text-white">{strategy.status}</span>
                 </div>
