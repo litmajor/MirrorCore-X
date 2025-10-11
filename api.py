@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import os
@@ -6,6 +6,8 @@ from typing import List, Dict
 from pydantic import BaseModel
 import logging
 from datetime import datetime, timezone
+import asyncio
+import json
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -14,11 +16,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 # CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://0.0.0.0:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global system state
+system_state = {
+    'sync_bus': None,
+    'components': None,
+    'parallel_scanner': None,
+    'oracle_imagination': None
+}
+
+active_websockets: List[WebSocket] = []
 
 
 # --- HybridMarketFrame Pydantic Model ---
@@ -35,6 +47,135 @@ class HybridMarketFrame(BaseModel):
     composite_score: float
     volume_score: float
     anchor_index: int
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize trading system on startup"""
+    logger.info("🚀 Initializing MirrorCore-X Trading System...")
+    
+    try:
+        from mirrorcore_x import create_mirrorcore_system
+        from parallel_scanner_integration import add_parallel_scanner_to_mirrorcore
+        
+        # Create main system
+        sync_bus, components = await create_mirrorcore_system(
+            dry_run=True,
+            use_testnet=True,
+            enable_oracle=True,
+            enable_bayesian=True,
+            enable_imagination=True
+        )
+        
+        system_state['sync_bus'] = sync_bus
+        system_state['components'] = components
+        system_state['oracle_imagination'] = components.get('oracle_imagination')
+        
+        # Add parallel scanner
+        parallel_scanner = await add_parallel_scanner_to_mirrorcore(
+            sync_bus, components.get('scanner'), enable=True
+        )
+        system_state['parallel_scanner'] = parallel_scanner
+        
+        # Start background task
+        asyncio.create_task(run_system_loop())
+        
+        logger.info("✅ System initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize system: {e}")
+
+async def run_system_loop():
+    """Background task to run system ticks and broadcast updates"""
+    while True:
+        try:
+            sync_bus = system_state.get('sync_bus')
+            oracle_imagination = system_state.get('oracle_imagination')
+            parallel_scanner = system_state.get('parallel_scanner')
+            
+            if sync_bus:
+                # Run tick
+                await sync_bus.tick()
+                
+                # Run enhanced cycle every 5 ticks
+                tick_count = getattr(sync_bus, 'tick_count', 0)
+                if tick_count % 5 == 0 and oracle_imagination:
+                    results = await oracle_imagination.run_enhanced_cycle()
+                    
+                    # Broadcast to WebSocket clients
+                    await broadcast_update({
+                        'type': 'oracle_update',
+                        'data': {
+                            'directives': len(results.get('oracle_directives', [])),
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        }
+                    })
+                
+                # Parallel scan every 10 ticks
+                if tick_count % 10 == 0 and parallel_scanner:
+                    scan_results = await parallel_scanner.scan_and_update()
+                    
+                    await broadcast_update({
+                        'type': 'scanner_update',
+                        'data': {
+                            'symbols': len(scan_results),
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        }
+                    })
+            
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.error(f"System loop error: {e}")
+            await asyncio.sleep(5)
+
+async def broadcast_update(message: dict):
+    """Broadcast update to all connected WebSocket clients"""
+    disconnected = []
+    for ws in active_websockets:
+        try:
+            await ws.send_json(message)
+        except:
+            disconnected.append(ws)
+    
+    # Remove disconnected clients
+    for ws in disconnected:
+        active_websockets.remove(ws)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates"""
+    await websocket.accept()
+    active_websockets.append(websocket)
+    logger.info(f"WebSocket client connected. Total: {len(active_websockets)}")
+    
+    try:
+        # Send initial state
+        sync_bus = system_state.get('sync_bus')
+        if sync_bus:
+            initial_data = {
+                'type': 'initial_state',
+                'data': {
+                    'scanner_data': await sync_bus.get_state('scanner_data') or [],
+                    'market_data': await sync_bus.get_state('market_data') or [],
+                    'oracle_directives': await sync_bus.get_state('oracle_directives') or [],
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+            }
+            await websocket.send_json(initial_data)
+        
+        # Keep connection alive
+        while True:
+            data = await websocket.receive_text()
+            # Handle client commands if needed
+            if data == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        active_websockets.remove(websocket)
+        logger.info(f"WebSocket client disconnected. Remaining: {len(active_websockets)}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        if websocket in active_websockets:
+            active_websockets.remove(websocket)
+
     price_range: float
     predicted_return: float
     predicted_consistent: int
@@ -220,17 +361,18 @@ async def get_metrics():
 
 @app.get("/api/market/overview")
 async def get_market_overview():
-    """Get market overview data from latest scan results"""
+    """Get market overview data from live system"""
     try:
-        # Find latest scan results
-        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_daily_") and f.endswith(".csv")]
-        if not csv_files:
-            return {"error": "No scan results available"}
+        sync_bus = system_state.get('sync_bus')
+        if not sync_bus:
+            return {"error": "System not initialized"}
         
-        latest_csv = max(csv_files, key=lambda x: datetime.strptime(x.split('_')[-2] + '_' + x.split('_')[-1].replace('.csv', ''), '%Y%m%d_%H%M%S'))
-        csv_path = os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_csv)
+        # Get live scanner data
+        scanner_data = await sync_bus.get_state('scanner_data') or []
+        if not scanner_data:
+            return {"error": "No scanner data available"}
         
-        df = pd.read_csv(csv_path)
+        df = pd.DataFrame(scanner_data)
         
         # Calculate real market metrics
         total_volume = df['average_volume_usd'].sum() if 'average_volume_usd' in df else 0
@@ -418,14 +560,19 @@ async def get_strategies():
 
 @app.get("/api/signals/active")
 async def get_active_signals():
-    """Get currently active trading signals"""
+    """Get currently active trading signals from Oracle"""
     try:
-        csv_files = [f for f in os.listdir("C:/Users/PC/Documents/MirrorCore-X") if f.startswith("scan_results_daily_") and f.endswith(".csv")]
-        if not csv_files:
+        sync_bus = system_state.get('sync_bus')
+        oracle_imagination = system_state.get('oracle_imagination')
+        
+        if not sync_bus or not oracle_imagination:
             return {"signals": []}
         
-        latest_csv = max(csv_files, key=lambda x: datetime.strptime(x.split('_')[-2] + '_' + x.split('_')[-1].replace('.csv', ''), '%Y%m%d_%H%M%S'))
-        df = pd.read_csv(os.path.join("C:/Users/PC/Documents/MirrorCore-X", latest_csv))
+        # Get Oracle directives
+        directives = await sync_bus.get_state('oracle_directives') or []
+        scanner_data = await sync_bus.get_state('scanner_data') or []
+        
+        df = pd.DataFrame(scanner_data) if scanner_data else pd.DataFrame()
         
         # Filter for strong signals
         strong_signals = df[

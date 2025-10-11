@@ -6,7 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAPI } from '../hooks/useAPI';
 
 const Dashboard: React.FC = () => {
-  const { data: wsData, isConnected } = useWebSocket('ws://0.0.0.0:5000');
+  const { data: wsData, isConnected } = useWebSocket('ws://0.0.0.0:8000/ws');
   const { data: marketData } = useAPI('/api/market/overview');
   const { data: performance } = useAPI('/api/performance/summary');
   
@@ -18,15 +18,15 @@ const Dashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    if (wsData?.system_performance) {
+    if (wsData) {
       setMetrics({
-        totalPnL: wsData.system_performance.pnl || 0,
-        winRate: wsData.system_performance.win_rate || 0,
-        activeSignals: wsData.scanner_data?.length || 0,
-        systemHealth: wsData.system_health?.health_score * 100 || 100
+        totalPnL: performance?.total_pnl || 0,
+        winRate: performance?.win_rate || 0,
+        activeSignals: wsData.oracle_directives?.directives || wsData.scanner_data?.length || 0,
+        systemHealth: 100
       });
     }
-  }, [wsData]);
+  }, [wsData, performance]);
 
   const MetricCard = ({ title, value, change, icon: Icon, trend }: any) => (
     <div className="metric-card">

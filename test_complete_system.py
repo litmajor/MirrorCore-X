@@ -7,9 +7,117 @@ Tests all components working together: Oracle, Imagination, Parallel Scanner, We
 import asyncio
 import logging
 from mirrorcore_x import create_mirrorcore_system
+from parallel_scanner_integration import add_parallel_scanner_to_mirrorcore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+async def test_complete_integration():
+    """Test all systems integrated together"""
+    
+    print("=" * 80)
+    print("🚀 COMPLETE SYSTEM INTEGRATION TEST")
+    print("=" * 80)
+    
+    # 1. Create main system with all enhancements
+    print("\n📦 Initializing MirrorCore-X with all enhancements...")
+    sync_bus, components = await create_mirrorcore_system(
+        dry_run=True,
+        use_testnet=True,
+        enable_oracle=True,
+        enable_bayesian=True,
+        enable_imagination=True
+    )
+    
+    oracle_imagination = components.get('oracle_imagination')
+    scanner = components.get('scanner')
+    
+    # 2. Add Parallel Exchange Scanner
+    print("\n🔗 Integrating Parallel Exchange Scanner...")
+    parallel_scanner = await add_parallel_scanner_to_mirrorcore(
+        sync_bus, scanner, enable=True
+    )
+    
+    # 3. Run initial ticks to populate data
+    print("\n📊 Generating initial market data...")
+    for i in range(15):
+        await sync_bus.tick()
+        await asyncio.sleep(0.05)
+    
+    # 4. Test Oracle & Imagination
+    print("\n🎯 Testing Oracle & Imagination Integration...")
+    oracle_results = await oracle_imagination.run_enhanced_cycle()
+    
+    print(f"  ✅ Oracle Directives: {len(oracle_results.get('oracle_directives', []))}")
+    print(f"  ✅ Bayesian Active: {oracle_results.get('bayesian_recommendations') is not None}")
+    print(f"  ✅ Imagination Status: {oracle_results.get('imagination_insights', {}).get('status', 'N/A')}")
+    
+    # 5. Test Parallel Scanner
+    print("\n🌐 Testing Parallel Exchange Scanner...")
+    if parallel_scanner:
+        scan_results = await parallel_scanner.scan_and_update()
+        print(f"  ✅ Symbols scanned: {len(scan_results)}")
+        
+        health = await parallel_scanner.get_health_report()
+        print(f"  ✅ Exchanges: {len(health)} active")
+    
+    # 6. Test data flow through SyncBus
+    print("\n🔄 Testing SyncBus Data Flow...")
+    scanner_data = await sync_bus.get_state('scanner_data')
+    market_data = await sync_bus.get_state('market_data')
+    oracle_directives = await sync_bus.get_state('oracle_directives')
+    
+    print(f"  ✅ Scanner data points: {len(scanner_data or [])}")
+    print(f"  ✅ Market data points: {len(market_data or [])}")
+    print(f"  ✅ Oracle directives: {len(oracle_directives or [])}")
+    
+    # 7. Run full integrated cycle
+    print("\n🔁 Running Full Integrated Cycle...")
+    for i in range(20):
+        await sync_bus.tick()
+        
+        if i % 5 == 0:
+            # Enhanced cycle
+            cycle_results = await oracle_imagination.run_enhanced_cycle()
+            
+            # Parallel scan
+            if parallel_scanner and i % 10 == 0:
+                await parallel_scanner.scan_and_update()
+            
+            print(f"  Tick {i}: {len(cycle_results.get('oracle_directives', []))} directives")
+        
+        await asyncio.sleep(0.05)
+    
+    # 8. Export comprehensive analysis
+    print("\n💾 Exporting Comprehensive Analysis...")
+    export_path = await oracle_imagination.export_analysis('complete_system_analysis.json')
+    print(f"  ✅ Analysis saved to: {export_path}")
+    
+    # 9. Final Status Report
+    print("\n" + "=" * 80)
+    print("📊 FINAL SYSTEM STATUS")
+    print("=" * 80)
+    
+    status = oracle_imagination.get_status()
+    for key, value in status.items():
+        print(f"  {key}: {value}")
+    
+    if parallel_scanner:
+        health = await parallel_scanner.get_health_report()
+        print(f"\n  Parallel Scanner Exchanges:")
+        for ex, metrics in health.items():
+            print(f"    {ex}: {metrics['health_score']:.2%} health")
+    
+    print("\n✨ Complete system integration test finished!")
+    
+    # Cleanup
+    if parallel_scanner:
+        await parallel_scanner.close()
+    
+    return True
+
+if __name__ == "__main__":
+    asyncio.run(test_complete_integration())
 
 async def test_complete_integration():
     """Test all integrated components"""

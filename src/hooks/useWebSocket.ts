@@ -1,54 +1,62 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import io, { Socket } from 'socket.io-client';
 
 export const useWebSocket = (url: string) => {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
   const [data, setData] = useState<any>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const socketInstance = io(url, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5
-    });
+    const ws = new WebSocket(url);
 
-    socketInstance.on('connect', () => {
+    ws.onopen = () => {
       setIsConnected(true);
       console.log('WebSocket connected');
-      // Request initial data
-      socketInstance.emit('get_system_state');
-    });
+    };
 
-    socketInstance.on('disconnect', () => {
+    ws.onclose = () => {
       setIsConnected(false);
       console.log('WebSocket disconnected');
-    });
+    };
 
-    socketInstance.on('dashboard_update', (newData) => {
-      setData(newData);
-    });
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        if (message.type === 'initial_state') {
+          setData(message.data);
+        } else if (message.type === 'oracle_update') {
+          setData((prev: any) => ({ 
+            ...prev, 
+            oracle_directives: message.data 
+          }));
+        } else if (message.type === 'scanner_update') {
+          setData((prev: any) => ({ 
+            ...prev, 
+            scanner_data: message.data 
+          }));
+        } else {
+          setData((prev: any) => ({ ...prev, ...message.data }));
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
 
-    socketInstance.on('market_overview', (marketData) => {
-      setData((prev: any) => ({ ...prev, marketOverview: marketData }));
-    });
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
 
-    socketInstance.on('system_state', (stateData) => {
-      setData((prev: any) => ({ ...prev, systemState: stateData }));
-    });
-
-    setSocket(socketInstance);
+    setSocket(ws);
 
     return () => {
-      socketInstance.disconnect();
+      ws.close();
     };
   }, [url]);
 
   const sendCommand = useCallback((command: string, params?: any) => {
     if (socket && isConnected) {
-      socket.emit(command, params);
+      socket.send(JSON.stringify({ command, params }));
     }
   }, [socket, isConnected]);
 
