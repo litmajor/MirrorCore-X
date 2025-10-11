@@ -13,6 +13,8 @@ import RLAgent from './pages/RLAgent';
 import Backtesting from './pages/Backtesting';
 import AgentMonitor from './pages/AgentMonitor';
 import Audit from './pages/Audit';
+import Positions from './pages/Positions';
+import TradeHistory from './pages/TradeHistory';
 import Layout from './components/Layout';
 
 function App() {
@@ -23,6 +25,8 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/trading" element={<Trading />} />
+          <Route path="/positions" element={<Positions />} />
+          <Route path="/trade-history" element={<TradeHistory />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/technical" element={<TechnicalAnalysis />} />
           <Route path="/strategies" element={<Strategies />} />

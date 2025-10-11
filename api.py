@@ -1012,6 +1012,114 @@ async def get_agent_logs():
         logger.error(f"Error getting agent logs: {e}")
         return {"error": str(e), "logs": []}
 
+@app.get("/api/positions/active")
+async def get_active_positions():
+    """Get currently open positions"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        components = global_state.get('components')
+        
+        if not sync_bus or not components:
+            return {"positions": [], "total_value": 0, "unrealized_pnl": 0, "avg_return": 0}
+        
+        execution_daemon = components.get('execution_daemon')
+        
+        if execution_daemon and hasattr(execution_daemon, 'open_orders'):
+            positions = []
+            total_value = 0
+            total_pnl = 0
+            
+            for order_id, order in execution_daemon.open_orders.items():
+                current_price = order.get('current_price', order.get('price', 0))
+                entry_price = order.get('price', 0)
+                size = order.get('amount', 0)
+                
+                pnl = (current_price - entry_price) * size
+                pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                
+                positions.append({
+                    "symbol": order.get('symbol'),
+                    "side": "long" if order.get('side') == 'buy' else "short",
+                    "size": size,
+                    "entry_price": entry_price,
+                    "current_price": current_price,
+                    "pnl": pnl,
+                    "pnl_percent": pnl_percent,
+                    "strategy": order.get('strategy', 'unknown')
+                })
+                
+                total_value += current_price * size
+                total_pnl += pnl
+            
+            avg_return = (total_pnl / total_value * 100) if total_value > 0 else 0
+            
+            return {
+                "positions": positions,
+                "total_value": total_value,
+                "unrealized_pnl": total_pnl,
+                "avg_return": avg_return
+            }
+        
+        return {"positions": [], "total_value": 0, "unrealized_pnl": 0, "avg_return": 0}
+    except Exception as e:
+        logger.error(f"Error getting positions: {e}")
+        return {"error": str(e), "positions": []}
+
+@app.get("/api/trades/history")
+async def get_trade_history():
+    """Get complete trade history"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        components = global_state.get('components')
+        
+        if not sync_bus or not components:
+            return {"trades": [], "total_trades": 0, "winning_trades": 0, "losing_trades": 0, "avg_duration": "0h"}
+        
+        trade_analyzer = components.get('trade_analyzer')
+        
+        if trade_analyzer and hasattr(trade_analyzer, 'trades'):
+            trades = []
+            winning_count = 0
+            losing_count = 0
+            total_duration = 0
+            
+            for trade in trade_analyzer.trades:
+                pnl = trade.pnl
+                if pnl > 0:
+                    winning_count += 1
+                else:
+                    losing_count += 1
+                
+                trades.append({
+                    "timestamp": trade.exit_time if hasattr(trade, 'exit_time') else time.time(),
+                    "symbol": trade.symbol,
+                    "side": "buy" if trade.side == 1 else "sell",
+                    "entry_price": trade.entry_price,
+                    "exit_price": trade.exit_price,
+                    "size": trade.size,
+                    "pnl": pnl,
+                    "fees": trade.commission if hasattr(trade, 'commission') else 0,
+                    "strategy": trade.strategy if hasattr(trade, 'strategy') else 'unknown'
+                })
+                
+                if hasattr(trade, 'duration'):
+                    total_duration += trade.duration
+            
+            avg_duration_hours = (total_duration / len(trades) / 3600) if trades else 0
+            
+            return {
+                "trades": trades,
+                "total_trades": len(trades),
+                "winning_trades": winning_count,
+                "losing_trades": losing_count,
+                "avg_duration": f"{avg_duration_hours:.1f}h"
+            }
+        
+        return {"trades": [], "total_trades": 0, "winning_trades": 0, "losing_trades": 0, "avg_duration": "0h"}
+    except Exception as e:
+        logger.error(f"Error getting trade history: {e}")
+        return {"error": str(e), "trades": []}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

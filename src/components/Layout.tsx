@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, TrendingUp, BarChart3, Layers, Shield, 
-  Settings, Menu, X, Bell, User, Brain 
+  Settings, Menu, X, Bell, User, Brain, Target, History 
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -16,6 +16,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/trading', icon: TrendingUp, label: 'Trading' },
+    { path: '/positions', icon: Target, label: 'Positions' },
+    { path: '/trade-history', icon: History, label: 'Trade History' },
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
     { path: '/strategies', icon: Layers, label: 'Strategies' },
     { path: '/risk', icon: Shield, label: 'Risk Management' },
