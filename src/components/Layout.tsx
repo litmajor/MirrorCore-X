@@ -19,8 +19,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/analytics', icon: BarChart3, label: 'Analytics' },
     { path: '/strategies', icon: Layers, label: 'Strategies' },
     { path: '/risk', icon: Shield, label: 'Risk Management' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
+    { path: '/backtesting', icon: BarChart3, label: 'Backtesting' },
+    { path: '/agent-monitor', icon: Brain, label: 'Agent Monitor' },
     { path: '/rl-agent', icon: Brain, label: 'RL Agent' },
+    { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
   return (

@@ -888,6 +888,130 @@ async def get_risk_analysis():
         logger.error(f"Error in risk analysis: {e}")
         return {"error": str(e)}
 
+@app.get("/api/backtest/results")
+async def get_backtest_results():
+    """Get latest backtest results"""
+    try:
+        # Check if backtest results exist
+        from pathlib import Path
+        import glob
+        
+        backtest_files = glob.glob("backtest_report_*.txt")
+        if not backtest_files:
+            return {"error": "No backtest results found"}
+        
+        # Get latest backtest file
+        latest_file = max(backtest_files, key=lambda x: Path(x).stat().st_mtime)
+        
+        with open(latest_file, 'r') as f:
+            report_text = f.read()
+        
+        # Parse report (basic parsing, you can enhance this)
+        lines = report_text.split('\n')
+        results = {
+            "report_text": report_text,
+            "timestamp": datetime.fromtimestamp(Path(latest_file).stat().st_mtime).isoformat()
+        }
+        
+        # Extract key metrics
+        for line in lines:
+            if "Total Return:" in line:
+                results["total_return"] = float(line.split(':')[1].strip().replace('%', ''))
+            elif "Sharpe Ratio:" in line:
+                results["sharpe_ratio"] = float(line.split(':')[1].strip())
+            elif "Maximum Drawdown:" in line:
+                results["max_drawdown"] = float(line.split(':')[1].strip().replace('%', ''))
+            elif "Win Rate:" in line:
+                results["win_rate"] = float(line.split(':')[1].strip().replace('%', ''))
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error getting backtest results: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/agents/states")
+async def get_agent_states():
+    """Get all agent states and health"""
+    try:
+        sync_bus = global_state.get('sync_bus')
+        if not sync_bus:
+            return {"error": "System not initialized"}
+        
+        # Get all agent states
+        all_states = {}
+        agent_health = sync_bus.agent_health
+        circuit_breakers = sync_bus.circuit_breakers
+        
+        for agent_id in sync_bus.agent_states.keys():
+            state = await sync_bus.get_state(agent_id) or {}
+            health_info = agent_health.get(agent_id, {})
+            breaker_info = circuit_breakers.get(agent_id, {})
+            
+            success_count = health_info.get('success_count', 0)
+            failure_count = health_info.get('failure_count', 0)
+            health_score = success_count / max(1, success_count + failure_count)
+            
+            all_states[agent_id] = {
+                "state": state,
+                "health": {
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "health_score": health_score,
+                    "last_update": health_info.get('last_success', 0)
+                },
+                "circuit_breaker": {
+                    "is_open": breaker_info.get('is_open', False),
+                    "failure_count": breaker_info.get('failure_count', 0),
+                    "last_failure": breaker_info.get('last_failure_time', 0)
+                }
+            }
+        
+        return {
+            "agents": all_states,
+            "system_health": await sync_bus.get_state('system_health') or {},
+            "tick_count": sync_bus.tick_count
+        }
+    except Exception as e:
+        logger.error(f"Error getting agent states: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/agents/logs")
+async def get_agent_logs():
+    """Get recent system logs"""
+    try:
+        from pathlib import Path
+        import glob
+        
+        # Get audit logs
+        audit_files = glob.glob("audit_logs/audit_*.log")
+        if not audit_files:
+            return {"logs": [], "message": "No audit logs found"}
+        
+        latest_log = max(audit_files, key=lambda x: Path(x).stat().st_mtime)
+        
+        # Read last 100 lines
+        with open(latest_log, 'r') as f:
+            lines = f.readlines()
+            recent_logs = lines[-100:]
+        
+        # Parse JSON logs
+        parsed_logs = []
+        for line in recent_logs:
+            try:
+                log_entry = json.loads(line.strip())
+                parsed_logs.append(log_entry)
+            except:
+                continue
+        
+        return {
+            "logs": parsed_logs,
+            "total_count": len(parsed_logs),
+            "log_file": latest_log
+        }
+    except Exception as e:
+        logger.error(f"Error getting agent logs: {e}")
+        return {"error": str(e), "logs": []}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

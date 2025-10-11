@@ -9,7 +9,9 @@ import RiskManagement from './pages/RiskManagement';
 import Settings from './pages/Settings';
 import Oracle from './pages/Oracle';
 import Optimization from './pages/Optimization';
-import RLAgent from './pages/RLAgent'; // Assuming RLAgent component is in './pages/RLAgent'
+import RLAgent from './pages/RLAgent';
+import Backtesting from './pages/Backtesting';
+import AgentMonitor from './pages/AgentMonitor';
 import Layout from './components/Layout';
 
 function App() {
@@ -28,6 +30,8 @@ function App() {
           <Route path="/oracle" element={<Oracle />} />
           <Route path="/optimization" element={<Optimization />} />
           <Route path="/rl-agent" element={<RLAgent />} />
+          <Route path="/backtesting" element={<Backtesting />} />
+          <Route path="/agent-monitor" element={<AgentMonitor />} />
         </Routes>
       </Layout>
     </Router>
