@@ -1271,18 +1271,8 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
-        # Import and create comprehensive optimizer
-        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
-        try:
-            from mirror_optimizer import ComprehensiveMirrorOptimizer
-        except ImportError:
-            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
-            # Provide a fallback or raise an error
-            class ComprehensiveMirrorOptimizer: # Mock class if import fails
-                def __init__(self, components):
-                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
-                def optimize(self, agent_config, data, target_metric):
-                    return {"best_params": {}, "best_score": 0.0}
+        # Import real comprehensive optimizer
+        from mirror_optimizer import ComprehensiveMirrorOptimizer
 
         # Collect all components for the optimizer
         all_components = {
@@ -1991,18 +1981,8 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
-        # Import and create comprehensive optimizer
-        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
-        try:
-            from mirror_optimizer import ComprehensiveMirrorOptimizer
-        except ImportError:
-            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
-            # Provide a fallback or raise an error
-            class ComprehensiveMirrorOptimizer: # Mock class if import fails
-                def __init__(self, components):
-                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
-                def optimize(self, agent_config, data, target_metric):
-                    return {"best_params": {}, "best_score": 0.0}
+        # Import real comprehensive optimizer
+        from mirror_optimizer import ComprehensiveMirrorOptimizer
 
         # Collect all components for the optimizer
         all_components = {
