@@ -1,4 +1,3 @@
-
 """
 Secure Secrets Management for MirrorCore-X
 Replaces hardcoded API keys with environment variable management
@@ -18,14 +17,14 @@ logger = logging.getLogger(__name__)
 
 class SecretsManager:
     """Secure secrets management with environment variables and optional encryption"""
-    
+
     def __init__(self, encryption_key: Optional[str] = None):
         self.encryption_key = encryption_key
         self.fernet = None
-        
+
         if encryption_key:
             self._setup_encryption(encryption_key)
-        
+
         # Environment variable prefixes for different services
         self.prefixes = {
             'exchange': 'EXCHANGE_',
@@ -34,36 +33,36 @@ class SecretsManager:
             'notification': 'NOTIFY_',
             'webhook': 'WEBHOOK_'
         }
-        
+
         logger.info("Secrets Manager initialized")
-    
+
     def _setup_encryption(self, password: str):
         """Setup Fernet encryption with password-based key derivation"""
         try:
             # Generate key from password
             password_bytes = password.encode()
             salt = b'stable_salt_for_mirrorcore'  # In production, use random salt stored securely
-            
+
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
                 salt=salt,
                 iterations=100000,
             )
-            
+
             key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
             self.fernet = Fernet(key)
-            
+
             logger.info("Encryption setup complete")
-            
+
         except Exception as e:
             logger.error(f"Failed to setup encryption: {e}")
             self.fernet = None
-    
+
     def get_exchange_credentials(self, exchange_name: str) -> Dict[str, str]:
         """Get exchange API credentials from environment"""
         prefix = f"{self.prefixes['exchange']}{exchange_name.upper()}_"
-        
+
         credentials = {
             'apiKey': self._get_secret(f"{prefix}API_KEY"),
             'secret': self._get_secret(f"{prefix}SECRET"),
@@ -71,19 +70,19 @@ class SecretsManager:
             'sandbox': self._get_secret(f"{prefix}SANDBOX", default="true").lower() == "true",
             'testnet': self._get_secret(f"{prefix}TESTNET", default="true").lower() == "true"
         }
-        
+
         # Validate required credentials
         if not credentials['apiKey'] or not credentials['secret']:
             raise ValueError(f"Missing API credentials for {exchange_name}. "
                            f"Set {prefix}API_KEY and {prefix}SECRET environment variables.")
-        
+
         logger.info(f"Loaded credentials for {exchange_name} exchange")
         return credentials
-    
+
     def get_database_config(self) -> Dict[str, str]:
         """Get database configuration from environment"""
         prefix = self.prefixes['database']
-        
+
         config = {
             'host': self._get_secret(f"{prefix}HOST", default="localhost"),
             'port': self._get_secret(f"{prefix}PORT", default="5432"),
@@ -92,14 +91,14 @@ class SecretsManager:
             'password': self._get_secret(f"{prefix}PASSWORD", required=False),
             'url': self._get_secret(f"{prefix}URL", required=False)
         }
-        
+
         logger.info("Database configuration loaded")
         return config
-    
+
     def get_api_keys(self) -> Dict[str, str]:
         """Get various API keys"""
         prefix = self.prefixes['api']
-        
+
         api_keys = {
             'openai': self._get_secret(f"{prefix}OPENAI", required=False),
             'anthropic': self._get_secret(f"{prefix}ANTHROPIC", required=False),
@@ -108,13 +107,13 @@ class SecretsManager:
             'slack': self._get_secret(f"{prefix}SLACK", required=False),
             'fear_greed': self._get_secret(f"{prefix}FEAR_GREED", required=False)
         }
-        
+
         return {k: v for k, v in api_keys.items() if v}
-    
+
     def get_notification_config(self) -> Dict[str, str]:
         """Get notification service configuration"""
         prefix = self.prefixes['notification']
-        
+
         config = {
             'email_smtp_host': self._get_secret(f"{prefix}EMAIL_SMTP_HOST", required=False),
             'email_smtp_port': self._get_secret(f"{prefix}EMAIL_SMTP_PORT", default="587"),
@@ -125,19 +124,19 @@ class SecretsManager:
             'webhook_emergency': self._get_secret(f"{prefix}WEBHOOK_EMERGENCY", required=False),
             'webhook_trades': self._get_secret(f"{prefix}WEBHOOK_TRADES", required=False)
         }
-        
+
         return {k: v for k, v in config.items() if v}
-    
+
     def _get_secret(self, key: str, default: Optional[str] = None, required: bool = True) -> Optional[str]:
         """Get secret from environment with optional decryption"""
         value = os.getenv(key, default)
-        
+
         if required and not value:
             raise ValueError(f"Required environment variable {key} not found")
-        
+
         if not value:
             return None
-        
+
         # Check if value is encrypted (starts with 'enc:')
         if value.startswith('enc:') and self.fernet:
             try:
@@ -147,33 +146,33 @@ class SecretsManager:
             except Exception as e:
                 logger.error(f"Failed to decrypt {key}: {e}")
                 return None
-        
+
         return value
-    
+
     def encrypt_secret(self, plaintext: str) -> str:
         """Encrypt a secret value"""
         if not self.fernet:
             raise ValueError("Encryption not setup")
-        
+
         encrypted_bytes = self.fernet.encrypt(plaintext.encode())
         return f"enc:{encrypted_bytes.decode()}"
-    
+
     def validate_credentials(self, exchange_name: str = None) -> bool:
         """Validate that all required credentials are available"""
         try:
             if exchange_name:
                 self.get_exchange_credentials(exchange_name)
-            
+
             # Check if any API keys are available
             api_keys = self.get_api_keys()
-            
+
             logger.info(f"Credential validation passed. Available API keys: {list(api_keys.keys())}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Credential validation failed: {e}")
             return False
-    
+
     @staticmethod
     def create_env_template(filename: str = ".env.template"):
         """Create environment variable template file"""
@@ -223,20 +222,20 @@ MIRRORCORE_LOG_LEVEL=INFO
 MIRRORCORE_MAX_DRAWDOWN=15.0
 MIRRORCORE_INITIAL_CAPITAL=100000.0
 """
-        
+
         with open(filename, 'w') as f:
             f.write(template.strip())
-        
+
         logger.info(f"Environment template created: {filename}")
 
 def load_secrets_from_env_file(env_file: str = ".env"):
     """Load environment variables from .env file"""
     env_path = Path(env_file)
-    
+
     if not env_path.exists():
         logger.warning(f"Environment file {env_file} not found")
         return
-    
+
     try:
         with open(env_path, 'r') as f:
             for line in f:
@@ -244,9 +243,9 @@ def load_secrets_from_env_file(env_file: str = ".env"):
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
                     os.environ[key.strip()] = value.strip()
-        
+
         logger.info(f"Environment variables loaded from {env_file}")
-        
+
     except Exception as e:
         logger.error(f"Failed to load environment file {env_file}: {e}")
 
@@ -254,21 +253,21 @@ def load_secrets_from_env_file(env_file: str = ".env"):
 if __name__ == "__main__":
     # Create template
     SecretsManager.create_env_template()
-    
+
     # Load from .env file
     load_secrets_from_env_file()
-    
+
     # Initialize secrets manager
     secrets = SecretsManager()
-    
+
     # Test credential loading
     try:
         binance_creds = secrets.get_exchange_credentials('binance')
         print("Binance credentials loaded successfully")
-        
+
         api_keys = secrets.get_api_keys()
         print(f"Available API keys: {list(api_keys.keys())}")
-        
+
     except Exception as e:
         print(f"Error: {e}")
         print("Make sure to set up your .env file with proper credentials")
