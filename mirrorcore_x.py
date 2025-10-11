@@ -2409,9 +2409,278 @@ class HighPerformanceSyncBus:
         async with self.lock:
             self.global_state[key] = value
 
-# --- System Creation Function (merged from both) ---
-async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
-    """Create MirrorCore-X system with emergency controls, audit logging, and merged features"""
+    async def get_all_states(self) -> Dict[str, Any]:
+        """Get all agent states"""
+        async with self.lock:
+            # Return a deep copy to prevent modification of internal states
+            import copy
+            return copy.deepcopy(self.agent_states)
+
+    async def send_command(self, agent_id: str, command: str, params: Dict[str, Any] = None):
+        """Send command to specific agent"""
+        if agent_id not in self.update_queues:
+            logger.warning(f"Agent {agent_id} not found for command '{command}'")
+            return
+
+        try:
+            command_msg = {'type': 'command', 'command': command, 'params': params or {}, 'timestamp': time.time()}
+            await self.update_queues[agent_id].put(command_msg)
+        except asyncio.QueueFull:
+            logger.warning(f"Command queue full for agent {agent_id}")
+
+    async def broadcast_command(self, command: str, params: Dict[str, Any] = None):
+        """Broadcast command to all agents"""
+        for agent_id in list(self.agent_states.keys()): # Iterate over a copy of keys
+            await self.send_command(agent_id, command, params)
+
+
+# --- Enhanced Console Monitor ---
+class ConsoleMonitor:
+    """Enhanced console monitoring with agent grid display"""
+
+    def __init__(self, syncbus: HighPerformanceSyncBus):
+        self.syncbus = syncbus
+
+    async def display_agent_grid(self):
+        """Show agents in a formatted grid"""
+        states = await self.syncbus.get_all_states()
+        agent_health = self.syncbus.agent_health
+        circuit_breakers = self.syncbus.circuit_breakers
+
+        table = []
+        for agent_id, state in states.items():
+            health_info = agent_health.get(agent_id, {})
+            success = health_info.get('success_count', 0)
+            failures = health_info.get('failure_count', 0)
+            health_score = success / max(1, failures + success) if (failures + success) > 0 else 1.0
+
+            breaker_status = circuit_breakers.get(agent_id, {}).get('is_open', False)
+
+            table.append([
+                agent_id[:12],  # Agent name
+                state.get('status', 'UNK')[:8],  # Status
+                f"{state.get('confidence', 0):.2f}",  # Confidence
+                state.get('last_signal', 'NONE')[:8],  # Last signal
+                f"{state.get('pnl', 0):+.2f}",  # PnL
+                self._health_indicator(health_score),  # Health
+                str(breaker_status)[:5]  # Circuit status
+            ])
+
+        # Clear screen and display
+        os.system('clear' if os.name == 'posix' else 'cls')
+        print("="*80)
+        print("MIRRORCORE-X AGENT STATUS DASHBOARD")
+        print("="*80)
+        print(tabulate(table, headers=['Agent', 'Status', 'Conf', 'Signal', 'PnL', 'Health', 'Circuit']))
+
+        # System health summary
+        system_health = await self.syncbus.get_state('system_health')
+        if system_health:
+            print(f"\nSystem Health: {system_health['healthy_agents']}/{system_health['total_agents']} agents healthy")
+            print(f"Health Score: {system_health['health_score']:.2f}")
+            print(f"Performance Metrics: Ticks={system_health['performance_metrics']['total_ticks']}, "
+                  f"Failed Updates={system_health['performance_metrics']['failed_updates']}, "
+                  f"CB Activations={system_health['performance_metrics']['circuit_breaker_activations']}, "
+                  f"Agent Restarts={system_health['performance_metrics']['agent_restarts']}")
+
+
+        print("="*80)
+
+    def _health_indicator(self, health_score: float) -> str:
+        """Convert health score to emoji indicator"""
+        if health_score > 0.8:
+            return "🟢"
+        elif health_score > 0.5:
+            return "🟡"
+        else:
+            return "🔴"
+
+# --- Command Interface ---
+class CommandInterface:
+    """Command interface for human-system interaction"""
+
+    def __init__(self, syncbus: HighPerformanceSyncBus):
+        self.syncbus = syncbus
+        self.command_handlers = {
+            'status': self._get_status,
+            'pause_agent': self._pause_agent,
+            'resume_agent': self._resume_agent,
+            'emergency_stop': self._emergency_stop,
+            'health': self._get_health_report,
+            'restart_agent': self._restart_agent,
+            'list_agents': self._list_agents,
+            'send_command': self._send_command_to_agent # Added handler
+        }
+
+    async def handle_command(self, command: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Handle command execution"""
+        params = params or {}
+        handler = self.command_handlers.get(command)
+
+        if handler:
+            try:
+                result = await handler(params)
+                return result
+            except Exception as e:
+                logger.error(f"Error executing command '{command}': {str(e)}")
+                return {"error": f"Error executing command: {str(e)}"}
+
+        return {"error": f"Unknown command: {command}"}
+
+    async def _get_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get system status"""
+        system_health = await self.syncbus.get_state('system_health')
+        return {
+            "status": "operational",
+            "tick_count": self.syncbus.tick_count,
+            "system_health": system_health,
+            "performance_metrics": self.syncbus.performance_metrics
+        }
+
+    async def _pause_agent(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Pause specific agent"""
+        agent_id = params.get('agent_id')
+        if not agent_id:
+            return {"error": "agent_id parameter required"}
+
+        await self.syncbus.send_command(agent_id, 'pause')
+        return {"status": f"Pause command sent to agent {agent_id}"}
+
+    async def _resume_agent(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Resume specific agent"""
+        agent_id = params.get('agent_id')
+        if not agent_id:
+            return {"error": "agent_id parameter required"}
+
+        await self.syncbus.send_command(agent_id, 'resume')
+        return {"status": f"Resume command sent to agent {agent_id}"}
+
+    async def _emergency_stop(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Emergency stop all trading"""
+        await self.syncbus.broadcast_command('emergency_stop')
+        return {"status": "Emergency stop activated for all agents"}
+
+    async def _get_health_report(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get detailed health report"""
+        return {
+            "agent_health": self.syncbus.agent_health,
+            "circuit_breakers": self.syncbus.circuit_breakers,
+            "performance_metrics": self.syncbus.performance_metrics
+        }
+
+    async def _restart_agent(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Force restart agent circuit breaker"""
+        agent_id = params.get('agent_id')
+        if not agent_id:
+            return {"error": "agent_id parameter required"}
+
+        # Ensure the agent is actually registered before attempting restart
+        if agent_id not in self.syncbus.agent_states:
+             return {"error": f"Agent {agent_id} not found."}
+
+        await self.syncbus._attempt_restart(agent_id, delay=1)
+        return {"status": f"Restart initiated for agent {agent_id}"}
+
+    async def _list_agents(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """List all registered agents"""
+        agents = []
+        for agent_id in self.syncbus.agent_states.keys():
+            health = self.syncbus.agent_health.get(agent_id, {})
+            circuit = self.syncbus.circuit_breakers.get(agent_id, {})
+            agents.append({
+                "agent_id": agent_id,
+                "interests": self.syncbus.subscriptions.get(agent_id, []),
+                "health": health,
+                "circuit_open": circuit.get('is_open', False)
+            })
+
+        return {"agents": agents}
+
+    async def _send_command_to_agent(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Send a custom command to a specific agent"""
+        agent_id = params.get('agent_id')
+        command = params.get('command')
+        command_params = params.get('command_params', {})
+
+        if not agent_id or not command:
+            return {"error": "agent_id and command parameters are required"}
+
+        await self.syncbus.send_command(agent_id, command, command_params)
+        return {"status": f"Command '{command}' sent to agent {agent_id} with params {command_params}"}
+
+
+# --- Enhanced Base Agent Class ---
+class MirrorAgent:
+    """Enhanced base agent class with data interests and command processing"""
+
+    def __init__(self, name: str, data_interests: List[str] = None):
+        self.name = name
+        self.data_interests = data_interests or ['all']
+        self.last_update_time = time.time() # Renamed to avoid conflict with syncbus.tick_count
+        self.memory = deque(maxlen=1000)
+        self.is_paused = False
+        self.command_queue = deque()
+        self.syncbus = None # Will be set by SyncBus attach
+
+    async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhanced update with command processing"""
+        # Process any pending commands first
+        await self._process_commands()
+
+        if self.is_paused:
+            return {}
+
+        # Store relevant data in memory
+        self.store_memory(data)
+
+        # Subclasses implement specific logic
+        result = await self._process_data(data)
+
+        self.last_update_time = time.time()
+        return result
+
+    async def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Override in subclasses"""
+        # Default implementation returns empty dict
+        return {}
+
+    async def _process_commands(self):
+        """Process pending commands"""
+        while self.command_queue:
+            command_msg = self.command_queue.popleft()
+            command = command_msg.get('command')
+
+            if command == 'pause':
+                self.is_paused = True
+                logger.info(f"Agent {self.name} paused")
+            elif command == 'resume':
+                self.is_paused = False
+                logger.info(f"Agent {self.name} resumed")
+            elif command == 'emergency_stop':
+                self.is_paused = True
+                logger.warning(f"Agent {self.name} emergency stopped")
+            elif command == 'syncbus_command': # Handle commands sent via syncbus
+                 # Allow agents to handle syncbus commands if needed
+                 await self._handle_syncbus_command(command_msg.get('params', {}))
+
+    async def _handle_syncbus_command(self, params: Dict[str, Any]):
+         """Handle commands coming from the SyncBus (e.g., through command interface)"""
+         # This method can be overridden by subclasses to handle specific commands
+         pass
+
+    def store_memory(self, item: Any):
+        """Store item in agent's memory with timestamp"""
+        self.memory.append({
+            'timestamp': time.time(),
+            'data': item
+        })
+
+# --- System Creation Function ---
+async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True, 
+                                     enable_oracle: bool = True, 
+                                     enable_bayesian: bool = True,
+                                     enable_imagination: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
+    """Create MirrorCore-X system with emergency controls, audit logging, and enhancement engines"""
 
     # Load secrets from environment
     load_secrets_from_env_file()
@@ -2425,10 +2694,16 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
     audit_logger = AuditLogger()
     await audit_logger.log_error_event({
         'error_type': 'system_startup',
-        'message': 'MirrorCore-X system starting',
+        'message': 'MirrorCore-X system starting with enhancements',
         'component': 'main',
         'severity': 'info',
-        'context': {'dry_run': dry_run, 'testnet': use_testnet}
+        'context': {
+            'dry_run': dry_run, 
+            'testnet': use_testnet,
+            'oracle': enable_oracle,
+            'bayesian': enable_bayesian,
+            'imagination': enable_imagination
+        }
     })
 
     # Create high-performance SyncBus

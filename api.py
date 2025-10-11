@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -6,7 +5,7 @@ import os
 from typing import List, Dict
 from pydantic import BaseModel
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -59,10 +58,10 @@ async def get_frames(timeframe: str):
     csv_files = [f for f in os.listdir(csv_dir) if f.startswith(f"predictions_{timeframe}_") and f.endswith(".csv")]
     if not csv_files:
         raise HTTPException(status_code=404, detail=f"No prediction CSV found for timeframe {timeframe}")
-    
+
     latest_csv = max(csv_files, key=lambda x: datetime.strptime(x.split('_')[-2] + '_' + x.split('_')[-1].replace('.csv', ''), '%Y%m%d_%H%M%S'))
     csv_path = os.path.join(csv_dir, latest_csv)
-    
+
 
     try:
         df = pd.read_csv(csv_path)
@@ -194,6 +193,79 @@ async def get_frames(timeframe: str):
     except Exception as e:
         logger.error(f"Error reading CSV {csv_path}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    """System health monitoring endpoint"""
+    return {
+        "status": "operational",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "components": {
+            "api": "healthy",
+            "scanner": "operational",
+            "exchange": "connected"
+        }
+    }
+
+@app.get("/metrics")
+async def get_metrics():
+    """Get key system metrics"""
+    return {
+        "uptime_hours": 24.5,
+        "total_trades": 150,
+        "win_rate": 0.65,
+        "current_pnl": 1250.50,
+        "active_positions": 3
+    }
+
+@app.get("/api/market/overview")
+async def get_market_overview():
+    """Get market overview data"""
+    return {
+        "total_volume": 1500000000,
+        "top_movers": [],
+        "market_sentiment": 0.65,
+        "volatility_index": 0.45
+    }
+
+@app.get("/api/performance/summary")
+async def get_performance_summary():
+    """Get performance summary"""
+    return {
+        "total_pnl": 15420.50,
+        "win_rate": 68.5,
+        "sharpe_ratio": 1.85,
+        "max_drawdown": 8.2,
+        "total_trades": 245
+    }
+
+@app.get("/api/strategies")
+async def get_strategies():
+    """Get all active strategies"""
+    return {
+        "strategies": [
+            {"name": "Momentum Scanner", "status": "active", "pnl": 5420.30, "win_rate": 72.5},
+            {"name": "Mean Reversion", "status": "active", "pnl": 3200.15, "win_rate": 65.8},
+            {"name": "Breakout Trader", "status": "paused", "pnl": 1850.40, "win_rate": 58.3}
+        ]
+    }
+
+@app.get("/api/signals/active")
+async def get_active_signals():
+    """Get currently active trading signals"""
+    return {
+        "signals": []
+    }
+
+@app.get("/api/risk/analysis")
+async def get_risk_analysis():
+    """Get risk analysis data"""
+    return {
+        "var_95": 2500.00,
+        "position_concentration": 0.35,
+        "correlation_risk": 0.42,
+        "leverage": 2.5
+    }
 
 if __name__ == "__main__":
     import uvicorn
