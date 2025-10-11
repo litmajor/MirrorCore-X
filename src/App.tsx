@@ -18,8 +18,10 @@ import Audit from './pages/Audit';
 import Positions from './pages/Positions';
 import TradeHistory from './pages/TradeHistory';
 import UXDemo from './pages/UXDemo';
+import MathOptimizer from './pages/MathOptimizer';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { TrendingUp, Activity, BarChart3, Settings as SettingsIcon, Shield, History, Target, Brain, Sparkles, Layers, TestTube, Calculator } from 'lucide-react';
 
 function App() {
   return (
@@ -39,17 +41,18 @@ function App() {
               <Route path="/risk" element={<RiskManagement />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/oracle" element={<Oracle />} />
+              <Route path="/math-optimizer" element={<MathOptimizer />} />
+              <Route path="/ux-demo" element={<UXDemo />} />
               <Route path="/optimization" element={<Optimization />} />
               <Route path="/rl-agent" element={<RLAgent />} />
               <Route path="/backtesting" element={<Backtesting />} />
               <Route path="/agent-monitor" element={<AgentMonitor />} />
               <Route path="/audit" element={<Audit />} />
-              <Route path="/ux-demo" element={<UXDemo />} />
             </Routes>
           </Layout>
         </Router>
-        <Toaster 
-          theme="dark" 
+        <Toaster
+          theme="dark"
           position="top-right"
           toastOptions={{
             className: 'glass border-brand-cyan/30',

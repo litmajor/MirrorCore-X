@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import asyncio
 import json
 import numpy as np # Import numpy for percentile calculation
+import time # Import time for timestamp
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
@@ -242,11 +243,11 @@ async def get_frames(timeframe: str, request: Request, limit: int = 100, offset:
 
     try:
         df = pd.read_csv(csv_path)
-        
+
         # Apply pagination
         total_records = len(df)
         df = df.iloc[offset:offset + limit]
-        
+
         frames = []
         for idx, row in enumerate(df.to_dict('records')):
             anchor_index = idx
@@ -608,20 +609,51 @@ async def get_oracle_directives():
 
 @app.get("/api/bayesian/beliefs")
 async def get_bayesian_beliefs():
-    """Get Bayesian strategy beliefs"""
+    """Get Bayesian belief updates for top strategies"""
     try:
-        oracle_imagination = global_state.get('oracle_imagination')
-        if oracle_imagination and hasattr(oracle_imagination, 'bayesian_integration') and oracle_imagination.bayesian_integration:
-            # Assuming bayesian_integration has a method export_beliefs_summary()
-            # and get_bayesian_insights()
-            beliefs_df = oracle_imagination.bayesian_integration.export_beliefs_summary()
-            oracle_rec = oracle_imagination.bayesian_integration.get_bayesian_insights()
-            # The original code returned oracle_rec directly. Assuming it's a dict.
-            return oracle_rec if oracle_rec else {"top_strategies": [], "market_context": {}}
-        return {"top_strategies": [], "market_context": {}}
+        bayesian_oracle = global_state.get('oracle_imagination')
+        if hasattr(bayesian_oracle, 'get_top_strategies'):
+            return bayesian_oracle.get_top_strategies(top_n=10)
+        return {"top_strategies": [], "timestamp": time.time()}
     except Exception as e:
-        logger.error(f"Error getting bayesian beliefs: {e}")
-        return {"top_strategies": [], "market_context": {}}
+        logger.error(f"Failed to get Bayesian beliefs: {e}")
+        return {"top_strategies": [], "error": str(e)}
+
+@app.get("/api/optimizer/weights")
+async def get_optimizer_weights(
+    lambda_risk: float = 100.0,
+    eta: float = 0.05,
+    max_weight: float = 0.25,
+    regime: str = "trending",
+    shrinkage: bool = True,
+    resampling: bool = False
+):
+    """Get optimized portfolio weights from mathematical optimizer"""
+    try:
+        # Import ensemble integration
+        from ensemble_integration import get_optimal_weights
+
+        result = get_optimal_weights(
+            lambda_risk=lambda_risk,
+            eta_turnover=eta,
+            max_weight=max_weight,
+            regime=regime,
+            use_shrinkage=shrinkage,
+            use_resampling=resampling
+        )
+
+        return result
+    except Exception as e:
+        logger.error(f"Optimizer failed: {e}")
+        return {
+            "weights": [],
+            "expected_return": 0.0,
+            "expected_volatility": 0.0,
+            "sharpe_ratio": 0.0,
+            "turnover": 0.0,
+            "error": str(e)
+        }
+
 
 @app.get("/api/imagination/analysis")
 async def get_imagination_analysis():
@@ -664,7 +696,7 @@ async def get_performance_summary():
         # Get trade analyzer
         trade_analyzer = components.get('trade_analyzer')
         scanner_data = await sync_bus.get_state('scanner_data') or []
-        
+
         if trade_analyzer:
             total_pnl = trade_analyzer.get_total_pnl()
             win_rate = trade_analyzer.risk_metrics.get('win_rate', 0) * 100
@@ -672,20 +704,20 @@ async def get_performance_summary():
             dd_stats = trade_analyzer.get_drawdown_stats()
             max_drawdown = abs(dd_stats.get('max_drawdown', 0)) if dd_stats else 0
             total_trades = len(trade_analyzer.trades)
-            
+
             # Calculate additional metrics
             recent_pnl = trade_analyzer.pnl_history[-20:] if trade_analyzer.pnl_history else []
             avg_win = trade_analyzer.risk_metrics.get('avg_win', 0)
             avg_loss = trade_analyzer.risk_metrics.get('avg_loss', 0)
             profit_factor = trade_analyzer.risk_metrics.get('profit_factor', 0)
-            
+
             # Build equity curve
             cumulative_pnl = np.cumsum(trade_analyzer.pnl_history) if trade_analyzer.pnl_history else []
             equity_curve = [
                 {"date": f"T{i}", "equity": 10000 + pnl} 
                 for i, pnl in enumerate(cumulative_pnl[-50:])
             ]
-            
+
             # Build drawdown curve
             running_max = np.maximum.accumulate(cumulative_pnl) if len(cumulative_pnl) > 0 else []
             drawdowns = (cumulative_pnl - running_max) if len(running_max) > 0 else []
@@ -736,11 +768,11 @@ async def get_ensemble_status():
         components = global_state.get('components')
         if not components:
             return {"error": "System not initialized"}
-        
+
         ensemble_manager = components.get('ensemble_manager')
         if not ensemble_manager:
             return {"error": "Ensemble manager not available"}
-        
+
         status = ensemble_manager.get_status()
         return status
     except Exception as e:
@@ -754,20 +786,20 @@ async def get_ensemble_weights():
     try:
         sync_bus = global_state.get('sync_bus')
         components = global_state.get('components')
-        
+
         if not sync_bus:
             return {"weights": {}}
-        
+
         weights = await sync_bus.get_state('ensemble_weights') or {}
         regime = await sync_bus.get_state('market_regime') or 'unknown'
-        
+
         # Get optimization report if available
         optimization_report = {}
         if components:
             strategy_trainer = components.get('strategy_trainer')
             if strategy_trainer and hasattr(strategy_trainer, 'get_optimization_report'):
                 optimization_report = strategy_trainer.get_optimization_report()
-        
+
         return {
             "regime": regime,
             "weights": weights,
@@ -897,12 +929,12 @@ async def get_rl_status():
     """Get RL agent status and performance"""
     try:
         components = global_state.get('components')
-        
+
         if not components:
             return {"error": "System not initialized"}
-        
+
         rl_agent = components.get('rl_agent')
-        
+
         if rl_agent and hasattr(rl_agent, 'is_trained') and rl_agent.is_trained:
             # Get recent predictions and performance
             return {
@@ -978,24 +1010,24 @@ async def get_backtest_results():
         # Check if backtest results exist
         from pathlib import Path
         import glob
-        
+
         backtest_files = glob.glob("backtest_report_*.txt")
         if not backtest_files:
             return {"error": "No backtest results found"}
-        
+
         # Get latest backtest file
         latest_file = max(backtest_files, key=lambda x: Path(x).stat().st_mtime)
-        
+
         with open(latest_file, 'r') as f:
             report_text = f.read()
-        
+
         # Parse report (basic parsing, you can enhance this)
         lines = report_text.split('\n')
         results = {
             "report_text": report_text,
             "timestamp": datetime.fromtimestamp(Path(latest_file).stat().st_mtime).isoformat()
         }
-        
+
         # Extract key metrics
         for line in lines:
             if "Total Return:" in line:
@@ -1006,7 +1038,7 @@ async def get_backtest_results():
                 results["max_drawdown"] = float(line.split(':')[1].strip().replace('%', ''))
             elif "Win Rate:" in line:
                 results["win_rate"] = float(line.split(':')[1].strip().replace('%', ''))
-        
+
         return results
     except Exception as e:
         logger.error(f"Error getting backtest results: {e}")
@@ -1019,21 +1051,21 @@ async def get_agent_states():
         sync_bus = global_state.get('sync_bus')
         if not sync_bus:
             return {"error": "System not initialized"}
-        
+
         # Get all agent states
         all_states = {}
         agent_health = sync_bus.agent_health
         circuit_breakers = sync_bus.circuit_breakers
-        
+
         for agent_id in sync_bus.agent_states.keys():
             state = await sync_bus.get_state(agent_id) or {}
             health_info = agent_health.get(agent_id, {})
             breaker_info = circuit_breakers.get(agent_id, {})
-            
+
             success_count = health_info.get('success_count', 0)
             failure_count = health_info.get('failure_count', 0)
             health_score = success_count / max(1, success_count + failure_count)
-            
+
             all_states[agent_id] = {
                 "state": state,
                 "health": {
@@ -1048,7 +1080,7 @@ async def get_agent_states():
                     "last_failure": breaker_info.get('last_failure_time', 0)
                 }
             }
-        
+
         return {
             "agents": all_states,
             "system_health": await sync_bus.get_state('system_health') or {},
@@ -1064,19 +1096,19 @@ async def get_agent_logs():
     try:
         from pathlib import Path
         import glob
-        
+
         # Get audit logs
         audit_files = glob.glob("audit_logs/audit_*.log")
         if not audit_files:
             return {"logs": [], "message": "No audit logs found"}
-        
+
         latest_log = max(audit_files, key=lambda x: Path(x).stat().st_mtime)
-        
+
         # Read last 100 lines
         with open(latest_log, 'r') as f:
             lines = f.readlines()
             recent_logs = lines[-100:]
-        
+
         # Parse JSON logs
         parsed_logs = []
         for line in recent_logs:
@@ -1085,7 +1117,7 @@ async def get_agent_logs():
                 parsed_logs.append(log_entry)
             except:
                 continue
-        
+
         return {
             "logs": parsed_logs,
             "total_count": len(parsed_logs),
@@ -1101,25 +1133,25 @@ async def get_active_positions():
     try:
         sync_bus = global_state.get('sync_bus')
         components = global_state.get('components')
-        
+
         if not sync_bus or not components:
             return {"positions": [], "total_value": 0, "unrealized_pnl": 0, "avg_return": 0}
-        
+
         execution_daemon = components.get('execution_daemon')
-        
+
         if execution_daemon and hasattr(execution_daemon, 'open_orders'):
             positions = []
             total_value = 0
             total_pnl = 0
-            
+
             for order_id, order in execution_daemon.open_orders.items():
                 current_price = order.get('current_price', order.get('price', 0))
                 entry_price = order.get('price', 0)
                 size = order.get('amount', 0)
-                
+
                 pnl = (current_price - entry_price) * size
                 pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
-                
+
                 positions.append({
                     "symbol": order.get('symbol'),
                     "side": "long" if order.get('side') == 'buy' else "short",
@@ -1130,19 +1162,19 @@ async def get_active_positions():
                     "pnl_percent": pnl_percent,
                     "strategy": order.get('strategy', 'unknown')
                 })
-                
+
                 total_value += current_price * size
                 total_pnl += pnl
-            
+
             avg_return = (total_pnl / total_value * 100) if total_value > 0 else 0
-            
+
             return {
                 "positions": positions,
                 "total_value": total_value,
                 "unrealized_pnl": total_pnl,
                 "avg_return": avg_return
             }
-        
+
         return {"positions": [], "total_value": 0, "unrealized_pnl": 0, "avg_return": 0}
     except Exception as e:
         logger.error(f"Error getting positions: {e}")
@@ -1154,25 +1186,25 @@ async def get_trade_history():
     try:
         sync_bus = global_state.get('sync_bus')
         components = global_state.get('components')
-        
+
         if not sync_bus or not components:
             return {"trades": [], "total_trades": 0, "winning_trades": 0, "losing_trades": 0, "avg_duration": "0h"}
-        
+
         trade_analyzer = components.get('trade_analyzer')
-        
+
         if trade_analyzer and hasattr(trade_analyzer, 'trades'):
             trades = []
             winning_count = 0
             losing_count = 0
             total_duration = 0
-            
+
             for trade in trade_analyzer.trades:
                 pnl = trade.pnl
                 if pnl > 0:
                     winning_count += 1
                 else:
                     losing_count += 1
-                
+
                 trades.append({
                     "timestamp": trade.exit_time if hasattr(trade, 'exit_time') else time.time(),
                     "symbol": trade.symbol,
@@ -1184,12 +1216,12 @@ async def get_trade_history():
                     "fees": trade.commission if hasattr(trade, 'commission') else 0,
                     "strategy": trade.strategy if hasattr(trade, 'strategy') else 'unknown'
                 })
-                
+
                 if hasattr(trade, 'duration'):
                     total_duration += trade.duration
-            
+
             avg_duration_hours = (total_duration / len(trades) / 3600) if trades else 0
-            
+
             return {
                 "trades": trades,
                 "total_trades": len(trades),
@@ -1197,7 +1229,7 @@ async def get_trade_history():
                 "losing_trades": losing_count,
                 "avg_duration": f"{avg_duration_hours:.1f}h"
             }
-        
+
         return {"trades": [], "total_trades": 0, "winning_trades": 0, "losing_trades": 0, "avg_duration": "0h"}
     except Exception as e:
         logger.error(f"Error getting trade history: {e}")

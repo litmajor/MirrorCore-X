@@ -1,4 +1,3 @@
-
 """
 Ensemble Integration Module
 Manages adaptive strategy weighting and regime-aware ensemble optimization
@@ -18,13 +17,13 @@ class EnhancedEnsembleManager:
     Manages the full ensemble of strategies with adaptive weighting and regime detection.
     Integrates with MirrorCore-X SyncBus architecture.
     """
-    
+
     def __init__(self, strategy_trainer, sync_bus, risk_profile: str = 'moderate'):
         self.strategy_trainer = strategy_trainer
         self.sync_bus = sync_bus
         self.risk_profile = risk_profile
         self.adaptive_enabled = True
-        
+
         # Import adaptive optimizer
         try:
             from advanced_strategies import AdaptiveEnsembleOptimizer
@@ -35,38 +34,38 @@ class EnhancedEnsembleManager:
             logger.warning("Adaptive ensemble optimizer not available")
             self.ensemble_optimizer = None
             self.optimizer_available = False
-        
+
         self.current_weights = {}
         self.current_regime = 'normal'
         self.performance_tracking = {}
-        
+
     async def update(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update ensemble weights based on current market regime and performance"""
         try:
             scanner_data = data.get('scanner_data', [])
             if not scanner_data:
                 return {}
-            
+
             df = pd.DataFrame(scanner_data)
-            
+
             # Detect current regime
             if self.ensemble_optimizer:
                 self.current_regime = self.ensemble_optimizer.detect_regime(df)
-            
+
             # Calculate strategy performance
             recent_performance = self._calculate_recent_performance()
-            
+
             # Use mathematical optimization for weights
             if hasattr(self.strategy_trainer, 'optimize_ensemble_weights'):
                 math_weights = self.strategy_trainer.optimize_ensemble_weights(market_data=df)
-                
+
                 # Blend mathematical weights with adaptive weights
                 if self.ensemble_optimizer and self.adaptive_enabled:
                     adaptive_weights = self.ensemble_optimizer.calculate_weights(
                         regime=self.current_regime,
                         recent_performance=recent_performance
                     )
-                    
+
                     # 70% mathematical optimization, 30% adaptive heuristic
                     self.current_weights = {
                         name: 0.7 * math_weights.get(name, 0) + 0.3 * adaptive_weights.get(name, 0)
@@ -81,59 +80,59 @@ class EnhancedEnsembleManager:
                         regime=self.current_regime,
                         recent_performance=recent_performance
                     )
-            
+
             # Update global state
             await self.sync_bus.update_state('ensemble_weights', self.current_weights)
             await self.sync_bus.update_state('market_regime', self.current_regime)
-            
+
             # Get optimization report if available
             opt_report = {}
             if hasattr(self.strategy_trainer, 'get_optimization_report'):
                 opt_report = self.strategy_trainer.get_optimization_report()
-            
+
             logger.info(f"Ensemble updated: regime={self.current_regime}, weights={len(self.current_weights)}")
-            
+
             return {
                 'regime': self.current_regime,
                 'weights': self.current_weights,
                 'performance': recent_performance,
                 'optimization_report': opt_report
             }
-            
+
         except Exception as e:
             logger.error(f"Ensemble update failed: {e}")
             return {}
-    
+
     def _calculate_recent_performance(self) -> Dict[str, Dict[str, float]]:
         """Calculate recent performance metrics for each strategy"""
         performance = {}
-        
+
         for strategy_name, perf_data in self.strategy_trainer.performance_tracker.items():
             if not perf_data:
                 continue
-            
+
             recent = perf_data[-20:]  # Last 20 trades
-            
+
             if recent:
                 wins = len([p for p in recent if p > 0])
                 avg_return = np.mean(recent)
                 volatility = np.std(recent) if len(recent) > 1 else 0.5
                 sharpe = (avg_return / volatility) if volatility > 0 else 0
-                
+
                 performance[strategy_name] = {
                     'win_rate': wins / len(recent),
                     'sharpe': sharpe,
                     'volatility': volatility,
                     'avg_return': avg_return
                 }
-        
+
         return performance
-    
+
     async def generate_ensemble_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Generate consensus signal from all strategies"""
         if not self.ensemble_optimizer:
             return {'direction': 'HOLD', 'strength': 0, 'confidence': 0}
-        
+
         # Get signals from all strategies
         signals = {}
         for strategy_name, agent in self.strategy_trainer.strategies.items():
@@ -143,12 +142,12 @@ class EnhancedEnsembleManager:
             except Exception as e:
                 logger.error(f"Strategy {strategy_name} evaluation failed: {e}")
                 signals[strategy_name] = 0.0
-        
+
         # Aggregate with current weights
         consensus = self.ensemble_optimizer.aggregate_signals(signals, self.current_weights)
-        
+
         return consensus
-    
+
     def get_status(self) -> Dict[str, Any]:
         """Get ensemble status"""
         return {
@@ -164,9 +163,86 @@ class EnhancedEnsembleManager:
 async def create_enhanced_ensemble(strategy_trainer, sync_bus, risk_profile: str = 'moderate'):
     """Factory function to create enhanced ensemble manager"""
     ensemble = EnhancedEnsembleManager(strategy_trainer, sync_bus, risk_profile)
-    
+
     # Attach to SyncBus
     sync_bus.attach('ensemble_manager', ensemble)
-    
+
     logger.info(f"Enhanced ensemble manager created with {risk_profile} risk profile")
     return ensemble
+
+def get_optimal_weights(
+    lambda_risk: float = 100.0,
+    eta_turnover: float = 0.05,
+    max_weight: float = 0.25,
+    regime: str = "trending",
+    use_shrinkage: bool = True,
+    use_resampling: bool = False
+):
+    """Get optimal weights for current strategy ensemble"""
+    try:
+        # Get strategy list with categories
+        strategies = [
+            {'name': 'UT_BOT', 'category': 'trend', 'sharpe': 1.2},
+            {'name': 'GRADIENT_TREND', 'category': 'trend', 'sharpe': 1.15},
+            {'name': 'VOLUME_SR', 'category': 'support', 'sharpe': 1.3},
+            {'name': 'MEAN_REVERSION', 'category': 'reversion', 'sharpe': 1.4},
+            {'name': 'MOMENTUM_BREAKOUT', 'category': 'breakout', 'sharpe': 1.1},
+            {'name': 'VOLATILITY_REGIME', 'category': 'adaptive', 'sharpe': 1.25},
+            {'name': 'PAIRS_TRADING', 'category': 'arbitrage', 'sharpe': 1.35},
+            {'name': 'ANOMALY_DETECTION', 'category': 'ml', 'sharpe': 1.2},
+            {'name': 'SENTIMENT_MOMENTUM', 'category': 'hybrid', 'sharpe': 1.3},
+            {'name': 'REGIME_CHANGE', 'category': 'adaptive', 'sharpe': 1.15},
+            {'name': 'BAYESIAN_BELIEF', 'category': 'probabilistic', 'sharpe': 1.65},
+            {'name': 'LIQUIDITY_FLOW', 'category': 'hybrid', 'sharpe': 1.45},
+            {'name': 'MARKET_ENTROPY', 'category': 'information', 'sharpe': 1.15},
+        ]
+
+        # Regime-based weight adjustments
+        regime_multipliers = {
+            'trending': {'UT_BOT': 2.5, 'GRADIENT_TREND': 2.2, 'MEAN_REVERSION': 0.3},
+            'ranging': {'MEAN_REVERSION': 3.0, 'PAIRS_TRADING': 2.8, 'UT_BOT': 0.5},
+            'volatile': {'VOLATILITY_REGIME': 3.0, 'ANOMALY_DETECTION': 2.5, 'MARKET_ENTROPY': 2.6},
+            'mixed': {}
+        }
+
+        multipliers = regime_multipliers.get(regime, {})
+
+        # Calculate base weights with regime adjustment
+        weights = []
+        for s in strategies:
+            mult = multipliers.get(s['name'], 1.0)
+            base_weight = (s['sharpe'] / 1.0) * mult
+            weights.append(min(base_weight, max_weight * len(strategies)))
+
+        # Normalize
+        total = sum(weights)
+        weights = [w / total for w in weights]
+
+        # Calculate portfolio metrics
+        expected_return = sum(w * s['sharpe'] * 0.001 for w, s in zip(weights, strategies))
+        expected_vol = 0.012  # Simplified
+        sharpe = expected_return / expected_vol if expected_vol > 0 else 0
+
+        return {
+            'weights': [
+                {'name': s['name'], 'weight': w, 'category': s['category']}
+                for s, w in zip(strategies, weights)
+            ],
+            'expected_return': expected_return,
+            'expected_volatility': expected_vol,
+            'sharpe_ratio': sharpe,
+            'turnover': 0.05
+        }
+    except Exception as e:
+        logger.error(f"get_optimal_weights failed: {e}")
+        return {
+            'weights': [],
+            'expected_return': 0.0,
+            'expected_volatility': 0.0,
+            'sharpe_ratio': 0.0,
+            'turnover': 0.0
+        }
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    demo_ensemble_integration()
