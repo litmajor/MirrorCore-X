@@ -1044,6 +1044,53 @@ async def get_backtest_results():
         logger.error(f"Error getting backtest results: {e}")
         return {"error": str(e)}
 
+@app.get("/api/backtest/comparison")
+async def get_strategy_comparison():
+    """Get strategy backtest comparison results"""
+    try:
+        import json
+        from pathlib import Path
+        
+        # Check for existing comparison results
+        if Path('strategy_comparison_results.json').exists():
+            with open('strategy_comparison_results.json', 'r') as f:
+                return json.load(f)
+        
+        return {"error": "No comparison results found. Run comparison first."}
+    except Exception as e:
+        logger.error(f"Error getting comparison results: {e}")
+        return {"error": str(e)}
+
+@app.post("/api/backtest/run-comparison")
+async def run_strategy_comparison():
+    """Run strategy backtest comparison"""
+    try:
+        from strategy_backtest_comparison import StrategyBacktestComparison
+        import ccxt.async_support as ccxt
+        
+        # Get historical data
+        exchange = ccxt.binance({'enableRateLimit': True})
+        ohlcv = await exchange.fetch_ohlcv('BTC/USDT', '1h', limit=1000)
+        await exchange.close()
+        
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
+        
+        # Run comparison
+        comparator = StrategyBacktestComparison()
+        results = await comparator.compare_all_strategies(df)
+        
+        # Save results
+        import json
+        with open('strategy_comparison_results.json', 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        return results
+    except Exception as e:
+        logger.error(f"Strategy comparison failed: {e}")
+        return {"error": str(e)}
+
 @app.get("/api/agents/states")
 async def get_agent_states():
     """Get all agent states and health"""
