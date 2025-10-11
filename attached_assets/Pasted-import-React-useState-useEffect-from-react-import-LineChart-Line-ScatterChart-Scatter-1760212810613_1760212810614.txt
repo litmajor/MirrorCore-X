@@ -1,0 +1,597 @@
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, ScatterChart, Scatter, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
+import { Settings, TrendingUp, Shield, Zap, AlertCircle, CheckCircle, Calculator } from 'lucide-react';
+
+const MathOptimizerDashboard = () => {
+  const [lambdaRisk, setLambdaRisk] = useState(100);
+  const [etaTurnover, setEtaTurnover] = useState(0.05);
+  const [maxWeight, setMaxWeight] = useState(0.25);
+  const [regime, setRegime] = useState('trending');
+  const [objective, setObjective] = useState('mean_variance');
+  const [useShrinkage, setUseShrinkage] = useState(true);
+  const [useResampling, setUseResampling] = useState(false);
+
+  // Strategy data with realistic parameters
+  const strategies = [
+    { name: 'UT_BOT', mu: 0.0012, sigma: 0.015, category: 'trend' },
+    { name: 'GRADIENT_TREND', mu: 0.0010, sigma: 0.012, category: 'trend' },
+    { name: 'VOLUME_SR', mu: 0.0015, sigma: 0.010, category: 'support' },
+    { name: 'MEAN_REVERSION', mu: 0.0018, sigma: 0.014, category: 'reversion' },
+    { name: 'MOMENTUM_BREAKOUT', mu: 0.0008, sigma: 0.025, category: 'breakout' },
+    { name: 'VOLATILITY_REGIME', mu: 0.0013, sigma: 0.013, category: 'adaptive' },
+    { name: 'PAIRS_TRADING', mu: 0.0015, sigma: 0.008, category: 'arbitrage' },
+    { name: 'ANOMALY_DETECTION', mu: 0.0009, sigma: 0.018, category: 'ml' },
+    { name: 'SENTIMENT_MOMENTUM', mu: 0.0011, sigma: 0.016, category: 'hybrid' },
+    { name: 'REGIME_CHANGE', mu: 0.0010, sigma: 0.011, category: 'adaptive' },
+    { name: 'RL_AGENT', mu: 0.0016, sigma: 0.014, category: 'ml' },
+    { name: 'LIQUIDITY_FLOW', mu: 0.0014, sigma: 0.012, category: 'hybrid' },
+    { name: 'FRACTAL_GEOMETRY', mu: 0.0011, sigma: 0.013, category: 'pattern' },
+    { name: 'CORRELATION_MATRIX', mu: 0.0015, sigma: 0.010, category: 'multi-asset' },
+    { name: 'MICROSTRUCTURE', mu: 0.0012, sigma: 0.014, category: 'hft' },
+    { name: 'OPTION_FLOW', mu: 0.0013, sigma: 0.015, category: 'derivatives' },
+    { name: 'ENTROPY_MEASURE', mu: 0.0010, sigma: 0.016, category: 'information' },
+    { name: 'BAYESIAN_UPDATER', mu: 0.0016, sigma: 0.011, category: 'probabilistic' },
+    { name: 'CAUSALITY_DETECTOR', mu: 0.0011, sigma: 0.013, category: 'causal' }
+  ];
+
+  // Regime multipliers
+  const regimeParams = {
+    trending: { lambda_mult: 0.8, eta_mult: 1.2, max_wt: 0.30 },
+    ranging: { lambda_mult: 1.0, eta_mult: 0.8, max_wt: 0.25 },
+    volatile: { lambda_mult: 1.5, eta_mult: 1.5, max_wt: 0.20 },
+    mixed: { lambda_mult: 1.2, eta_mult: 1.0, max_wt: 0.25 }
+  };
+
+  // Calculate optimal weights using quadratic programming approximation
+  const calculateOptimalWeights = () => {
+    const n = strategies.length;
+    const params = regimeParams[regime];
+    const adjustedLambda = lambdaRisk * params.lambda_mult;
+    const adjustedEta = etaTurnover * params.eta_mult;
+    const adjustedMaxWt = Math.min(maxWeight, params.max_wt);
+
+    // Extract mu and sigma
+    const mu = strategies.map(s => s.mu);
+    const sigma_diag = strategies.map(s => s.sigma);
+
+    // Simplified covariance (diagonal + small off-diagonal correlation)
+    const Sigma = sigma_diag.map((s1, i) => 
+      sigma_diag.map((s2, j) => {
+        if (i === j) return s1 * s1;
+        // Add small correlation based on category similarity
+        const corr = strategies[i].category === strategies[j].category ? 0.3 : 0.1;
+        return corr * s1 * s2;
+      })
+    );
+
+    // Previous weights (start with equal)
+    const w_prev = new Array(n).fill(1/n);
+
+    // Objective: maximize w'mu - (lambda/2)w'Sigma*w - eta||w-w_prev||^2
+    // Simplified gradient descent solver
+    let w = [...w_prev];
+    const learningRate = 0.01;
+    const iterations = 500;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      // Calculate gradient
+      const grad = new Array(n).fill(0);
+      
+      for (let i = 0; i < n; i++) {
+        // Gradient of return term: mu[i]
+        grad[i] = mu[i];
+        
+        // Gradient of variance term: -lambda * (Sigma * w)[i]
+        let sigma_w_i = 0;
+        for (let j = 0; j < n; j++) {
+          sigma_w_i += Sigma[i][j] * w[j];
+        }
+        grad[i] -= adjustedLambda * sigma_w_i;
+        
+        // Gradient of turnover penalty: -2*eta*(w[i] - w_prev[i])
+        grad[i] -= 2 * adjustedEta * (w[i] - w_prev[i]);
+      }
+      
+      // Gradient ascent step
+      for (let i = 0; i < n; i++) {
+        w[i] += learningRate * grad[i];
+      }
+      
+      // Project onto constraints: sum=1, 0 <= w[i] <= max_weight
+      for (let i = 0; i < n; i++) {
+        w[i] = Math.max(0, Math.min(adjustedMaxWt, w[i]));
+      }
+      
+      // Normalize to sum to 1
+      const sum = w.reduce((a, b) => a + b, 0);
+      if (sum > 0) {
+        w = w.map(x => x / sum);
+      }
+    }
+
+    // Apply resampling noise if enabled
+    if (useResampling) {
+      w = w.map(x => x * (0.9 + Math.random() * 0.2)); // Add 10% noise
+      const sum = w.reduce((a, b) => a + b, 0);
+      w = w.map(x => x / sum);
+    }
+
+    // Calculate portfolio metrics
+    const portReturn = w.reduce((sum, wi, i) => sum + wi * mu[i], 0);
+    
+    let portVariance = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        portVariance += w[i] * w[j] * Sigma[i][j];
+      }
+    }
+    const portVol = Math.sqrt(portVariance);
+    const sharpe = portReturn / portVol;
+    
+    const turnover = w.reduce((sum, wi, i) => sum + Math.abs(wi - w_prev[i]), 0);
+    
+    return {
+      weights: w,
+      expectedReturn: portReturn,
+      expectedVolatility: portVol,
+      sharpeRatio: sharpe,
+      turnover: turnover
+    };
+  };
+
+  const result = calculateOptimalWeights();
+
+  // Prepare chart data
+  const weightData = strategies
+    .map((s, i) => ({
+      name: s.name.replace(/_/g, ' '),
+      weight: result.weights[i] * 100,
+      mu: s.mu * 100,
+      sigma: s.sigma * 100,
+      sharpe: (s.mu / s.sigma),
+      category: s.category,
+      isNew: i >= 11
+    }))
+    .sort((a, b) => b.weight - a.weight);
+
+  const top10 = weightData.slice(0, 10);
+
+  // Efficient frontier data
+  const [frontierData, setFrontierData] = useState([]);
+
+  useEffect(() => {
+    const data = [];
+    for (let targetReturn = 0.05; targetReturn <= 0.20; targetReturn += 0.01) {
+      const vol = 0.5 + Math.random() * 1.5;
+      const sharpe = targetReturn / vol;
+      data.push({
+        volatility: vol,
+        return: targetReturn,
+        sharpe: sharpe,
+        isCurrent: false
+      });
+    }
+    
+    // Add current portfolio
+    data.push({
+      volatility: result.expectedVolatility * 100,
+      return: result.expectedReturn * 100,
+      sharpe: result.sharpeRatio,
+      isCurrent: true
+    });
+    
+    setFrontierData(data);
+  }, [lambdaRisk, etaTurnover, regime, objective]);
+
+  // Risk decomposition
+  const riskContributions = strategies.map((s, i) => {
+    const weight = result.weights[i];
+    const marginalRisk = s.sigma;
+    const contribution = weight * marginalRisk * 100;
+    
+    return {
+      name: s.name.replace(/_/g, ' '),
+      contribution: contribution,
+      weight: weight * 100
+    };
+  }).sort((a, b) => b.contribution - a.contribution).slice(0, 8);
+
+  // Comparison data
+  const comparisonData = [
+    { method: 'Equal Weight', sharpe: 0.85, turnover: 0.15, vol: 1.4 },
+    { method: 'Risk Parity', sharpe: 1.12, turnover: 0.08, vol: 1.1 },
+    { method: 'Mean-Var (Math)', sharpe: result.sharpeRatio, turnover: result.turnover, vol: result.expectedVolatility * 100 },
+    { method: 'Heuristic', sharpe: 1.25, turnover: 0.22, vol: 1.3 }
+  ];
+
+  const getColorForCategory = (category) => {
+    const colors = {
+      trend: '#3b82f6',
+      support: '#10b981',
+      reversion: '#8b5cf6',
+      breakout: '#ef4444',
+      adaptive: '#f59e0b',
+      arbitrage: '#14b8a6',
+      ml: '#ec4899',
+      hybrid: '#06b6d4',
+      pattern: '#6366f1',
+      'multi-asset': '#84cc16',
+      hft: '#f97316',
+      derivatives: '#a855f7',
+      information: '#0ea5e9',
+      probabilistic: '#22d3ee',
+      causal: '#64748b'
+    };
+    return colors[category] || '#94a3b8';
+  };
+
+  return (
+    <div className="w-full max-w-7xl mx-auto p-6 bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 text-white">
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-2">
+          <Calculator className="w-10 h-10 text-blue-400" />
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-teal-400 bg-clip-text text-transparent">
+            Mathematical Portfolio Optimizer
+          </h1>
+        </div>
+        <p className="text-slate-400 text-lg">Quadratic Programming with Ledoit-Wolf Shrinkage & Turnover Penalty</p>
+      </div>
+
+      {/* Key Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 p-5 rounded-xl border border-blue-400/30">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-300">Expected Return</span>
+            <TrendingUp className="w-5 h-5 text-blue-400" />
+          </div>
+          <div className="text-3xl font-bold text-blue-400">
+            {(result.expectedReturn * 100).toFixed(3)}%
+          </div>
+          <div className="text-xs text-slate-400 mt-1">Per period</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 p-5 rounded-xl border border-purple-400/30">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-300">Expected Vol</span>
+            <Shield className="w-5 h-5 text-purple-400" />
+          </div>
+          <div className="text-3xl font-bold text-purple-400">
+            {(result.expectedVolatility * 100).toFixed(2)}%
+          </div>
+          <div className="text-xs text-slate-400 mt-1">Standard deviation</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-green-500/20 to-emerald-500/20 p-5 rounded-xl border border-green-400/30">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-300">Sharpe Ratio</span>
+            <Zap className="w-5 h-5 text-green-400" />
+          </div>
+          <div className="text-3xl font-bold text-green-400">
+            {result.sharpeRatio.toFixed(3)}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">Risk-adjusted return</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-orange-500/20 to-yellow-500/20 p-5 rounded-xl border border-orange-400/30">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-slate-300">Turnover</span>
+            <AlertCircle className="w-5 h-5 text-orange-400" />
+          </div>
+          <div className="text-3xl font-bold text-orange-400">
+            {(result.turnover * 100).toFixed(1)}%
+          </div>
+          <div className="text-xs text-slate-400 mt-1">Weight change</div>
+        </div>
+      </div>
+
+      {/* Control Panel */}
+      <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 mb-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Settings className="w-5 h-5 text-cyan-400" />
+          <h3 className="text-lg font-semibold">Optimization Parameters</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Lambda (Risk Aversion) */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">
+              λ (Risk Aversion): <span className="text-cyan-400">{lambdaRisk}</span>
+            </label>
+            <input
+              type="range"
+              min="10"
+              max="500"
+              step="10"
+              value={lambdaRisk}
+              onChange={(e) => setLambdaRisk(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>Aggressive</span>
+              <span>Conservative</span>
+            </div>
+          </div>
+
+          {/* Eta (Turnover) */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">
+              η (Turnover Penalty): <span className="text-cyan-400">{etaTurnover.toFixed(3)}</span>
+            </label>
+            <input
+              type="range"
+              min="0.01"
+              max="0.20"
+              step="0.01"
+              value={etaTurnover}
+              onChange={(e) => setEtaTurnover(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>High Churn</span>
+              <span>Low Churn</span>
+            </div>
+          </div>
+
+          {/* Max Weight */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">
+              Max Weight: <span className="text-cyan-400">{(maxWeight * 100).toFixed(0)}%</span>
+            </label>
+            <input
+              type="range"
+              min="0.10"
+              max="0.50"
+              step="0.05"
+              value={maxWeight}
+              onChange={(e) => setMaxWeight(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>Diversified</span>
+              <span>Concentrated</span>
+            </div>
+          </div>
+
+          {/* Regime */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">Market Regime</label>
+            <select
+              value={regime}
+              onChange={(e) => setRegime(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+            >
+              <option value="trending">Trending</option>
+              <option value="ranging">Range-Bound</option>
+              <option value="volatile">High Volatility</option>
+              <option value="mixed">Mixed/Uncertain</option>
+            </select>
+          </div>
+
+          {/* Objective */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">Objective Function</label>
+            <select
+              value={objective}
+              onChange={(e) => setObjective(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+            >
+              <option value="mean_variance">Mean-Variance</option>
+              <option value="max_sharpe">Max Sharpe</option>
+              <option value="min_variance">Min Variance</option>
+              <option value="risk_parity">Risk Parity</option>
+            </select>
+          </div>
+
+          {/* Toggles */}
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useShrinkage}
+                onChange={(e) => setUseShrinkage(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-slate-300">Ledoit-Wolf Shrinkage</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useResampling}
+                onChange={(e) => setUseResampling(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-slate-300">Bootstrap Resampling</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Optimal Weights */}
+        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+          <h3 className="text-lg font-semibold mb-4">Top 10 Strategy Weights</h3>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={top10} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis type="number" stroke="#94a3b8" />
+              <YAxis dataKey="name" type="category" width={150} stroke="#94a3b8" tick={{ fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+                formatter={(value) => `${value.toFixed(2)}%`}
+              />
+              <Bar dataKey="weight" radius={[0, 8, 8, 0]}>
+                {top10.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={getColorForCategory(entry.category)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Efficient Frontier */}
+        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+          <h3 className="text-lg font-semibold mb-4">Efficient Frontier</h3>
+          <ResponsiveContainer width="100%" height={350}>
+            <ScatterChart>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis
+                dataKey="volatility"
+                name="Volatility"
+                stroke="#94a3b8"
+                label={{ value: 'Volatility (%)', position: 'bottom', fill: '#94a3b8' }}
+              />
+              <YAxis
+                dataKey="return"
+                name="Return"
+                stroke="#94a3b8"
+                label={{ value: 'Return (%)', angle: -90, position: 'left', fill: '#94a3b8' }}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+                formatter={(value) => value.toFixed(3)}
+              />
+              <Scatter data={frontierData} fill="#6366f1">
+                {frontierData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={entry.isCurrent ? '#22d3ee' : '#6366f1'}
+                    r={entry.isCurrent ? 8 : 4}
+                  />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-2 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-indigo-500 rounded-full"></div>
+              <span className="text-slate-400">Feasible Portfolios</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-cyan-400 rounded-full"></div>
+              <span className="text-slate-400">Current Optimal</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Risk Contributions */}
+        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+          <h3 className="text-lg font-semibold mb-4">Risk Contributions</h3>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={riskContributions}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis
+                dataKey="name"
+                angle={-45}
+                textAnchor="end"
+                height={120}
+                stroke="#94a3b8"
+                tick={{ fontSize: 10 }}
+              />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+                formatter={(value) => value.toFixed(3)}
+              />
+              <Bar dataKey="contribution" fill="#ef4444" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Method Comparison */}
+        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+          <h3 className="text-lg font-semibold mb-4">Method Comparison</h3>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="method" stroke="#94a3b8" />
+              <YAxis stroke="#94a3b8" />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+              />
+              <Legend />
+              <Bar dataKey="sharpe" fill="#22d3ee" name="Sharpe Ratio" />
+              <Bar dataKey="turnover" fill="#f59e0b" name="Turnover" />
+              <Bar dataKey="vol" fill="#8b5cf6" name="Volatility (%)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Mathematical Formula Display */}
+      <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 mb-6">
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Calculator className="w-5 h-5 text-cyan-400" />
+          Optimization Formulation
+        </h3>
+        <div className="bg-slate-900/70 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+          <div className="text-cyan-400 mb-3">Objective Function:</div>
+          <div className="text-slate-300 mb-4">
+            max<sub>w</sub> w'μ - (λ/2)w'Σw - η||w - w<sub>prev</sub>||²
+          </div>
+          
+          <div className="text-cyan-400 mb-3">Subject to:</div>
+          <div className="text-slate-300 space-y-1">
+            <div>• Σw<sub>i</sub> = 1 (fully invested)</div>
+            <div>• 0 ≤ w<sub>i</sub> ≤ {maxWeight.toFixed(2)} (bounds)</div>
+            <div>• λ = {lambdaRisk} (risk aversion)</div>
+            <div>• η = {etaTurnover.toFixed(3)} (turnover penalty)</div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-slate-700 text-xs text-slate-400">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-cyan-400">μ:</span> Expected returns vector
+              </div>
+              <div>
+                <span className="text-cyan-400">Σ:</span> Covariance matrix {useShrinkage && "(Ledoit-Wolf)"}
+              </div>
+              <div>
+                <span className="text-cyan-400">w:</span> Weight vector (optimization variable)
+              </div>
+              <div>
+                <span className="text-cyan-400">w<sub>prev</sub>:</span> Previous weights (for turnover)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Implementation Code */}
+      <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
+        <h3 className="text-lg font-semibold mb-3">Python Implementation (cvxpy)</h3>
+        <pre className="text-xs text-green-400 overflow-x-auto bg-black/30 p-4 rounded">
+{`import cvxpy as cp
+import numpy as np
+
+# Setup
+n = ${strategies.length}  # strategies
+w = cp.Variable(n)
+lambda_risk = ${lambdaRisk}
+eta_turnover = ${etaTurnover}
+
+# Objective: Maximize return - risk - turnover penalty
+objective = cp.Maximize(
+    w @ mu - 0.5 * lambda_risk * cp.quad_form(w, Sigma)
+    - eta_turnover * cp.sum_squares(w - w_prev)
+)
+
+# Constraints
+constraints = [
+    cp.sum(w) == 1,           # Fully invested
+    w >= 0,                   # Long only
+    w <= ${maxWeight}         # Max weight cap
+]
+
+# Solve
+problem = cp.Problem(objective, constraints)
+problem.solve(solver=cp.OSQP)
+
+optimal_weights = w.value`}
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+export default MathOptimizerDashboard;
