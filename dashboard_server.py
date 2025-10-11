@@ -127,7 +127,6 @@ def handle_start_system():
     """Start the trading system"""
     try:
         if not dashboard_manager.running:
-            # Start the system in a background thread
             def run_async_loop():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -145,6 +144,21 @@ def handle_start_system():
     except Exception as e:
         logger.error(f"Error starting system: {e}")
         emit('system_status', {'status': 'error', 'message': str(e)})
+
+@socketio.on('get_system_state')
+def handle_get_system_state():
+    """Get current system state"""
+    try:
+        state = {
+            'running': dashboard_manager.running,
+            'tick_count': dashboard_state.get('tick_count', 0),
+            'performance': dashboard_state.get('performance_metrics', {}),
+            'strategies': dashboard_state.get('strategy_grades', {})
+        }
+        emit('system_state', state)
+    except Exception as e:
+        logger.error(f"Error getting system state: {e}")
+        emit('error', {'message': str(e)})
 
 @socketio.on('stop_system')
 def handle_stop_system():

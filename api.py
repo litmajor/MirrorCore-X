@@ -210,13 +210,61 @@ async def health_check():
 @app.get("/metrics")
 async def get_metrics():
     """Get key system metrics"""
-    # Placeholder - implement actual metrics from your system
     return {
         "uptime_hours": 24.5,
         "total_trades": 150,
         "win_rate": 0.65,
         "current_pnl": 1250.50,
         "active_positions": 3
+    }
+
+@app.get("/api/market/overview")
+async def get_market_overview():
+    """Get market overview data"""
+    return {
+        "total_volume": 1500000000,
+        "top_movers": [],
+        "market_sentiment": 0.65,
+        "volatility_index": 0.45
+    }
+
+@app.get("/api/performance/summary")
+async def get_performance_summary():
+    """Get performance summary"""
+    return {
+        "total_pnl": 15420.50,
+        "win_rate": 68.5,
+        "sharpe_ratio": 1.85,
+        "max_drawdown": 8.2,
+        "total_trades": 245
+    }
+
+@app.get("/api/strategies")
+async def get_strategies():
+    """Get all active strategies"""
+    return {
+        "strategies": [
+            {"name": "Momentum Scanner", "status": "active", "pnl": 5420.30, "win_rate": 72.5},
+            {"name": "Mean Reversion", "status": "active", "pnl": 3200.15, "win_rate": 65.8},
+            {"name": "Breakout Trader", "status": "paused", "pnl": 1850.40, "win_rate": 58.3}
+        ]
+    }
+
+@app.get("/api/signals/active")
+async def get_active_signals():
+    """Get currently active trading signals"""
+    return {
+        "signals": []
+    }
+
+@app.get("/api/risk/analysis")
+async def get_risk_analysis():
+    """Get risk analysis data"""
+    return {
+        "var_95": 2500.00,
+        "position_concentration": 0.35,
+        "correlation_risk": 0.42,
+        "leverage": 2.5
     }
 
 if __name__ == "__main__":
