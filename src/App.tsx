@@ -3,10 +3,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Dashboard from './pages/Dashboard';
 import Trading from './pages/Trading';
 import Analytics from './pages/Analytics';
-import TechnicalAnalysis from './pages/TechnicalAnalysis'; // Assuming TechnicalAnalysis.tsx exists
+import TechnicalAnalysis from './pages/TechnicalAnalysis';
 import Strategies from './pages/Strategies';
 import RiskManagement from './pages/RiskManagement';
 import Settings from './pages/Settings';
+import Oracle from './pages/Oracle';
+import Optimization from './pages/Optimization';
 import Layout from './components/Layout';
 
 function App() {
@@ -22,6 +24,8 @@ function App() {
           <Route path="/strategies" element={<Strategies />} />
           <Route path="/risk" element={<RiskManagement />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/oracle" element={<Oracle />} />
+          <Route path="/optimization" element={<Optimization />} />
         </Routes>
       </Layout>
     </Router>
