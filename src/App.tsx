@@ -19,6 +19,8 @@ import Positions from './pages/Positions';
 import TradeHistory from './pages/TradeHistory';
 import UXDemo from './pages/UXDemo';
 import MathOptimizer from './pages/MathOptimizer';
+import AIInsights from './pages/AIInsights';
+import Landing from './pages/Landing';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TrendingUp, Activity, BarChart3, Settings as SettingsIcon, Shield, History, Target, Brain, Sparkles, Layers, TestTube, Calculator } from 'lucide-react';
@@ -30,8 +32,9 @@ function App() {
         <Router>
           <Layout>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<Landing />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/ai-insights" element={<AIInsights />} />
               <Route path="/trading" element={<Trading />} />
               <Route path="/positions" element={<Positions />} />
               <Route path="/trade-history" element={<TradeHistory />} />

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, TrendingUp, BarChart3, Layers, Shield, 
-  Settings, Menu, X, Bell, User, Brain, Target, History, Sun, Moon, Sparkles 
+  Settings, Menu, X, Bell, User, Brain, Target, History, Sun, Moon, Sparkles, MessageCircle
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -25,7 +25,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         setSidebarOpen(false);
       }
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -44,6 +44,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/agent-monitor', icon: Brain, label: 'Agent Monitor' },
     { path: '/rl-agent', icon: Brain, label: 'RL Agent' },
     { path: '/audit', icon: Shield, label: 'Audit Trail' },
+    { path: '/ai-insights', icon: MessageCircle, label: 'AI Insights' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 

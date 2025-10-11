@@ -1382,6 +1382,83 @@ async def get_trade_history():
         logger.error(f"Error getting trade history: {e}")
         return {"error": str(e), "trades": []}
 
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request):
+    """AI Insights chat endpoint"""
+    try:
+        from ai_insights_agent import ai_insights, InsightContext
+        
+        body = await request.json()
+        query = body.get('query', '')
+        
+        if not query:
+            return {"error": "No query provided"}
+        
+        # Gather context
+        sync_bus = global_state.get('sync_bus')
+        components = global_state.get('components')
+        
+        market_data = []
+        performance_metrics = {}
+        active_signals = []
+        system_state = {}
+        
+        if sync_bus:
+            market_data = await sync_bus.get_state('scanner_data') or []
+            system_state = {
+                'strategy_grades': await sync_bus.get_state('strategy_grades') or {},
+                'oracle_directives': await sync_bus.get_state('oracle_directives') or []
+            }
+            active_signals = [s for s in market_data if s.get('composite_score', 0) > 60]
+        
+        if components:
+            trade_analyzer = components.get('trade_analyzer')
+            if trade_analyzer:
+                performance_metrics = {
+                    'total_pnl': trade_analyzer.get_total_pnl(),
+                    'win_rate': trade_analyzer.get_win_rate(),
+                    'sharpe_ratio': trade_analyzer.risk_metrics.get('sharpe_ratio', 0),
+                    'max_drawdown': abs(trade_analyzer.get_drawdown_stats().get('max_drawdown', 0))
+                }
+        
+        # Create context
+        context = InsightContext(
+            user_query=query,
+            system_state=system_state,
+            market_data=market_data,
+            performance_metrics=performance_metrics,
+            active_signals=active_signals,
+            timestamp=time.time()
+        )
+        
+        # Get AI response
+        response = await ai_insights.process_query(query, context)
+        
+        return {
+            "query": query,
+            "response": response,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"AI chat error: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/ai/conversation-history")
+async def get_conversation_history():
+    """Get AI chat conversation history"""
+    try:
+        from ai_insights_agent import ai_insights
+        return {
+            "history": ai_insights.conversation_history[-50:],  # Last 50 messages
+            "total_messages": len(ai_insights.conversation_history)
+        }
+    except Exception as e:
+        logger.error(f"Error getting conversation history: {e}")
+        return {"error": str(e), "history": []}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
