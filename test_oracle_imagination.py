@@ -127,5 +127,50 @@ async def test_oracle_imagination():
     
     print("\n✨ Test complete!")
 
+async def integrate_into_main_system():
+    """Integrate Oracle & Imagination into main MirrorCore system"""
+    from mirrorcore_x import create_mirrorcore_system
+    
+    print("\n" + "="*80)
+    print("🔗 INTEGRATING ORACLE & IMAGINATION INTO MAIN SYSTEM")
+    print("="*80)
+    
+    # Create main system with all enhancements
+    sync_bus, components = await create_mirrorcore_system(
+        dry_run=True,
+        use_testnet=True,
+        enable_oracle=True,
+        enable_bayesian=True,
+        enable_imagination=True
+    )
+    
+    oracle_imagination = components.get('oracle_imagination')
+    
+    if oracle_imagination:
+        print("✅ Oracle & Imagination successfully integrated into main system")
+        
+        # Run live system test
+        print("\n🔄 Running live system integration test...")
+        for i in range(30):
+            await sync_bus.tick()
+            
+            if i % 10 == 0:
+                results = await oracle_imagination.run_enhanced_cycle()
+                print(f"  Tick {i}: {len(results.get('oracle_directives', []))} directives generated")
+        
+        # Export final analysis
+        export_path = await oracle_imagination.export_analysis('integrated_system_analysis.json')
+        print(f"\n✅ Integration complete! Analysis saved to: {export_path}")
+        
+        return True
+    else:
+        print("❌ Integration failed - Oracle & Imagination not available")
+        return False
+
 if __name__ == "__main__":
-    asyncio.run(test_oracle_imagination())
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == '--integrate':
+        asyncio.run(integrate_into_main_system())
+    else:
+        asyncio.run(test_oracle_imagination())

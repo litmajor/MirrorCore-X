@@ -1189,10 +1189,15 @@ class MirrorAgent:
         })
 
 # --- System Creation Function ---
-async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = True, 
-                                     enable_oracle: bool = True, 
-                                     enable_bayesian: bool = True,
-                                     enable_imagination: bool = True) -> Tuple[HighPerformanceSyncBus, Dict[str, Any]]:
+async def create_mirrorcore_system(
+    exchange_instance: Optional[ccxt.Exchange] = None,
+    dry_run: bool = True,
+    use_testnet: bool = False,
+    enable_oracle: bool = False,
+    enable_bayesian: bool = False,
+    enable_imagination: bool = False,
+    enable_parallel_scanner: bool = False
+) -> Tuple['HighPerformanceSyncBus', Dict[str, Any]]:
     """Create MirrorCore-X system with emergency controls, audit logging, and enhancement engines"""
 
     # Load secrets from environment
@@ -1211,11 +1216,12 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         'component': 'main',
         'severity': 'info',
         'context': {
-            'dry_run': dry_run, 
+            'dry_run': dry_run,
             'testnet': use_testnet,
             'oracle': enable_oracle,
             'bayesian': enable_bayesian,
-            'imagination': enable_imagination
+            'imagination': enable_imagination,
+            'parallel_scanner': enable_parallel_scanner
         }
     })
 
@@ -1233,8 +1239,9 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         position_limit_usd=50000.0
     )
 
-    # Create emergency controller (exchange will be set later)
-    emergency_controller = EmergencyController(emergency_config, None, sync_bus)
+    # Initialize console monitor and command interface
+    console_monitor = ConsoleMonitor(sync_bus)
+    command_interface = CommandInterface(sync_bus)
 
     # Initialize heartbeat manager
     heartbeat_manager = HeartbeatManager()
@@ -1243,6 +1250,16 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
     # Initialize MirrorCore audit logger
     mirror_audit = MirrorCoreAuditLogger(sync_bus, audit_logger)
 
+    # Placeholder for exchange, optimizer, and other components that might be initialized later or conditionally
+    exchange = None
+    comprehensive_optimizer = None
+    oracle_imagination = None
+    parallel_scanner = None
+    scanner = MomentumScanner() # Initialize scanner mock by default
+    strategy_trainer = StrategyTrainerAgent()
+    trade_analyzer = TradeAnalyzerAgent()
+    arch_ctrl = ARCH_CTRL()
+    execution_daemon = ExecutionDaemon(dry_run=dry_run) # Mock ExecutionDaemon
 
     try:
         exchange_config = {'enableRateLimit': True, 'options': {'defaultType': 'spot'}}
@@ -1263,56 +1280,23 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
             exchange = ccxt.binance(exchange_config) # Use real exchange for live trading
 
         # Set the exchange for the emergency controller
-        emergency_controller.set_exchange(exchange)
+        emergency_controller = EmergencyController(emergency_config, exchange, sync_bus)
 
-        scanner = MomentumScanner(exchange=exchange)
-        strategy_trainer = StrategyTrainerAgent()
-        trade_analyzer = TradeAnalyzerAgent()
-        arch_ctrl = ARCH_CTRL()
+        # Re-initialize scanner, execution_daemon with actual exchange if not dry_run or if exchange is provided
+        if exchange:
+             scanner = MomentumScanner(exchange=exchange)
+             execution_daemon = ExecutionDaemon(exchange=exchange, dry_run=dry_run)
 
-        # Instantiate agents that need to be attached to the SyncBus
+
+        # Instantiate other agents
         ego_processor = EgoProcessor()
         fear_analyzer = FearAnalyzer()
         self_awareness_agent = SelfAwarenessAgent()
         decision_mirror = DecisionMirror()
-        execution_daemon = ExecutionDaemon(exchange=exchange, dry_run=dry_run)
         reflection_core = ReflectionCore()
         mirror_mind_meta_agent = MirrorMindMetaAgent()
         meta_agent = MetaAgent()
         risk_sentinel = RiskSentinel()
-        # Import and create comprehensive optimizer
-        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
-        try:
-            from mirror_optimizer import ComprehensiveMirrorOptimizer
-        except ImportError:
-            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
-            # Provide a fallback or raise an error
-            class ComprehensiveMirrorOptimizer: # Mock class if import fails
-                def __init__(self, components):
-                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
-                def optimize(self, agent_config, data, target_metric):
-                    return {"best_params": {}, "best_score": 0.0}
-
-        # Collect all components for the optimizer
-        all_components = {
-            'scanner': scanner,
-            'strategy_trainer': strategy_trainer,
-            'trade_analyzer': trade_analyzer,
-            'arch_ctrl': arch_ctrl,
-            'ego_processor': ego_processor,
-            'fear_analyzer': fear_analyzer,
-            'self_awareness': self_awareness_agent,
-            'decision_mirror': decision_mirror,
-            'execution_daemon': execution_daemon,
-            'reflection_core': reflection_core,
-            'mirror_mind_meta': mirror_mind_meta_agent,
-            'meta_agent': meta_agent,
-            'risk_sentinel': risk_sentinel
-        }
-
-        # Create comprehensive optimizer
-        comprehensive_optimizer = ComprehensiveMirrorOptimizer(all_components)
-
 
         # Attach agents to SyncBus
         sync_bus.attach('scanner', scanner)
@@ -1328,21 +1312,49 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
         sync_bus.attach('mirror_mind_meta', mirror_mind_meta_agent)
         sync_bus.attach('meta_agent', meta_agent)
         sync_bus.attach('risk_sentinel', risk_sentinel)
-        sync_bus.attach('comprehensive_optimizer', comprehensive_optimizer)
 
-
-        # Register strategies (assuming these agents exist)
+        # Register strategies
         strategy_trainer.register_strategy("UT_BOT", UTSignalAgent())
         strategy_trainer.register_strategy("GRADIENT_TREND", GradientTrendAgent())
         strategy_trainer.register_strategy("VBSR", SupportResistanceAgent())
 
-        # Initialize Oracle and Imagination integration if enabled
-        oracle_imagination_integration = None
+        # Import and create comprehensive optimizer
+        # Ensure mirror_optimizer.py exists and contains ComprehensiveMirrorOptimizer
+        try:
+            from mirror_optimizer import ComprehensiveMirrorOptimizer
+            all_components_for_optimizer = {
+                'scanner': scanner,
+                'strategy_trainer': strategy_trainer,
+                'trade_analyzer': trade_analyzer,
+                'arch_ctrl': arch_ctrl,
+                'ego_processor': ego_processor,
+                'fear_analyzer': fear_analyzer,
+                'self_awareness': self_awareness_agent,
+                'decision_mirror': decision_mirror,
+                'execution_daemon': execution_daemon,
+                'reflection_core': reflection_core,
+                'mirror_mind_meta': mirror_mind_meta_agent,
+                'meta_agent': meta_agent,
+                'risk_sentinel': risk_sentinel
+            }
+            comprehensive_optimizer = ComprehensiveMirrorOptimizer(all_components_for_optimizer)
+            sync_bus.attach('comprehensive_optimizer', comprehensive_optimizer)
+
+        except ImportError:
+            logger.error("Could not import ComprehensiveMirrorOptimizer. Please ensure mirror_optimizer.py exists and is in the Python path.")
+            # Provide a fallback or raise an error
+            class MockComprehensiveMirrorOptimizer: # Mock class if import fails
+                def __init__(self, components):
+                    logger.warning("Using mock ComprehensiveMirrorOptimizer.")
+                def optimize(self, agent_config, data, target_metric):
+                    return {"best_params": {}, "best_score": 0.0}
+            comprehensive_optimizer = MockComprehensiveMirrorOptimizer(None) # Instantiate mock
+
+        # Optional: Oracle & Imagination Integration
         if enable_oracle or enable_bayesian or enable_imagination:
             try:
                 from oracle_imagination_integration import integrate_oracle_and_imagination
-
-                oracle_imagination_integration = await integrate_oracle_and_imagination(
+                oracle_imagination = await integrate_oracle_and_imagination(
                     sync_bus=sync_bus,
                     scanner=scanner,
                     strategy_trainer=strategy_trainer,
@@ -1352,24 +1364,30 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
                     enable_bayesian=enable_bayesian,
                     enable_imagination=enable_imagination
                 )
-
-                logger.info("✨ Oracle & Imagination integration complete")
-
+                logger.info("✅ Oracle & Imagination integrated")
             except Exception as e:
-                logger.error(f"Failed to integrate Oracle & Imagination: {e}")
-                logger.warning("Continuing without enhancement engines")
+                logger.warning(f"Oracle & Imagination integration failed: {e}")
+
+        # Optional: Parallel Exchange Scanner
+        if enable_parallel_scanner:
+            try:
+                from parallel_scanner_integration import add_parallel_scanner_to_mirrorcore
+                parallel_scanner = await add_parallel_scanner_to_mirrorcore(sync_bus, scanner)
+                logger.info("✅ Parallel Exchange Scanner integrated")
+            except Exception as e:
+                logger.warning(f"Parallel scanner integration failed: {e}")
+
 
         logger.info("MirrorCore-X system created with enhanced SyncBus and intelligence layers")
 
-        return sync_bus, {
+        # Return components
+        components = {
             'sync_bus': sync_bus,
-            'data_pipeline': data_pipeline,
-            'market_scanner': scanner,
-            'strategy_trainer': strategy_trainer,
+            'scanner': scanner,
             'trade_analyzer': trade_analyzer,
-            'execution_daemon': execution_daemon,
-            'risk_sentinel': risk_sentinel,
             'arch_ctrl': arch_ctrl,
+            'strategy_trainer': strategy_trainer,
+            'execution_daemon': execution_daemon,
             'comprehensive_optimizer': comprehensive_optimizer,
             'console_monitor': console_monitor,
             'command_interface': command_interface,
@@ -1378,8 +1396,11 @@ async def create_mirrorcore_system(dry_run: bool = True, use_testnet: bool = Tru
             'audit_logger': audit_logger,
             'mirror_audit': mirror_audit,
             'secrets_manager': secrets_manager,
-            'oracle_imagination': oracle_imagination_integration
+            'oracle_imagination': oracle_imagination,
+            'parallel_scanner': parallel_scanner,
+            'exchange': exchange # Include exchange instance
         }
+        return sync_bus, components
 
     except Exception as e:
         logger.error(f"Failed to create MirrorCore system: {e}")
@@ -1397,7 +1418,14 @@ if __name__ == "__main__":
     async def main():
         # Set dry_run to True for simulation, False for live trading
         # Set use_testnet to True to use the exchange's test network
-        sync_bus, components = await create_mirrorcore_system(dry_run=True, use_testnet=False)
+        sync_bus, components = await create_mirrorcore_system(
+            dry_run=True,
+            use_testnet=False,
+            enable_oracle=True,          # Enable Oracle integration
+            enable_bayesian=True,        # Enable Bayesian optimization within Oracle
+            enable_imagination=True,     # Enable Imagination module within Oracle
+            enable_parallel_scanner=True # Enable Parallel Scanner integration
+        )
 
         console_monitor = components['console_monitor']
         command_interface = components['command_interface']
@@ -1442,7 +1470,9 @@ if __name__ == "__main__":
                 await data_pipeline.process_tick(market_update)
 
                 # Simulate scanner output update (manually put into syncbus)
-                await sync_bus.update_agent_state('scanner', {'scanner_data': scanner_update}) # Assuming scanner agent can receive this
+                # This assumes the 'scanner' agent in sync_bus can process this data.
+                # A more robust simulation might involve calling a specific method on the scanner agent.
+                await sync_bus.update_agent_state('scanner', {'scanner_data': scanner_update})
 
                 # Trigger a syncbus tick
                 await sync_bus.tick()

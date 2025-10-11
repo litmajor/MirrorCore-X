@@ -41,6 +41,7 @@ class DashboardManager:
         self.scanner = None
         self.trade_analyzer = None
         self.exchange = None
+        self.active_connections = set() # To keep track of connected WebSocket clients
 
     async def initialize_system(self):
         """Initialize the trading system"""
@@ -112,6 +113,56 @@ class DashboardManager:
                 logger.error(f"Error in simulation loop: {e}")
                 await asyncio.sleep(1.0)
 
+    async def broadcast_market_data(self):
+        """Broadcast market data to all connected clients"""
+        while self.running:
+            try:
+                # Get comprehensive data from sync_bus
+                scanner_data = await self.sync_bus.get_state('scanner_data') or []
+                parallel_data = await self.sync_bus.get_state('parallel_scanner_data') or []
+                trades = await self.sync_bus.get_state('trades') or []
+                oracle_directives = await self.sync_bus.get_state('oracle_directives') or []
+                system_performance = await self.sync_bus.get_state('system_performance') or {}
+
+                # Calculate real-time metrics
+                active_trades = [t for t in trades if t.get('exit') is None]
+                total_pnl = sum(t.get('pnl', 0) for t in trades)
+                win_rate = len([t for t in trades if t.get('pnl', 0) > 0]) / len(trades) if trades else 0
+
+                # Prepare comprehensive broadcast data
+                data = {
+                    'type': 'market_update',
+                    'scanner_data': scanner_data[:20],
+                    'parallel_exchanges': len(set(d.get('exchange') for d in parallel_data if d.get('exchange'))),
+                    'active_signals': len([s for s in scanner_data if s.get('signal') in ['Strong Buy', 'Strong Sell']]),
+                    'active_trades': len(active_trades),
+                    'total_pnl': round(total_pnl, 2),
+                    'win_rate': round(win_rate * 100, 1),
+                    'oracle_directives': len(oracle_directives),
+                    'system_performance': system_performance,
+                    'timestamp': time.time()
+                }
+
+                # Broadcast to all clients
+                if self.active_connections:
+                    disconnected = []
+                    for ws in self.active_connections:
+                        try:
+                            await ws.send_json(data)
+                        except Exception:
+                            disconnected.append(ws)
+
+                    # Remove disconnected clients
+                    for ws in disconnected:
+                        self.active_connections.discard(ws)
+
+                await asyncio.sleep(1)  # Update every second
+
+            except Exception as e:
+                logger.error(f"Broadcast error: {e}")
+                await asyncio.sleep(1)
+
+
     def stop_simulation(self):
         """Stop the simulation"""
         self.running = False
@@ -138,6 +189,17 @@ def handle_connect():
     """Handle client connection"""
     logger.info('Client connected to dashboard')
     emit('connection_status', {'status': 'connected'})
+    # Add new connection to the set
+    dashboard_manager.active_connections.add(request.sid) # Assuming request.sid is available
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    logger.info('Client disconnected from dashboard')
+    # Remove disconnected client from the set
+    if hasattr(request, 'sid') and request.sid in dashboard_manager.active_connections:
+        dashboard_manager.active_connections.remove(request.sid)
+
 
 @socketio.on('start_system')
 def handle_start_system():
@@ -148,7 +210,15 @@ def handle_start_system():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 loop.run_until_complete(dashboard_manager.initialize_system())
+                # Start the WebSocket broadcast loop
+                broadcast_task = loop.create_task(dashboard_manager.broadcast_market_data())
                 loop.run_until_complete(dashboard_manager.run_simulation_loop())
+                # Ensure broadcast task is cancelled when simulation loop stops
+                broadcast_task.cancel()
+                try:
+                    loop.run_until_complete(broadcast_task)
+                except asyncio.CancelledError:
+                    pass # Expected cancellation
 
             thread = threading.Thread(target=run_async_loop)
             thread.daemon = True
