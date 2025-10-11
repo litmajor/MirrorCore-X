@@ -434,6 +434,69 @@ async def get_realtime_scanner_data():
         logger.error(f"Real-time scanner error: {e}")
         return {"error": str(e), "data": []}
 
+@app.get("/api/technical/analysis/{symbol}")
+async def get_technical_analysis(symbol: str):
+    """Get comprehensive technical analysis for a symbol"""
+    try:
+        sync_bus = system_state.get('sync_bus')
+        scanner_data = await sync_bus.get_state('scanner_data') if sync_bus else []
+        
+        # Find symbol data
+        symbol_data = next((d for d in scanner_data if d.get('symbol') == symbol), None)
+        
+        if not symbol_data:
+            return {"error": "Symbol not found"}
+        
+        return {
+            "symbol": symbol,
+            "price": symbol_data.get('price'),
+            "indicators": {
+                "rsi": symbol_data.get('rsi'),
+                "macd": symbol_data.get('macd'),
+                "macd_signal": symbol_data.get('macd_signal'),
+                "macd_hist": symbol_data.get('macd_hist'),
+                "bb_upper": symbol_data.get('bb_upper'),
+                "bb_middle": symbol_data.get('bb_middle'),
+                "bb_lower": symbol_data.get('bb_lower'),
+                "ema_5": symbol_data.get('ema_5'),
+                "ema_13": symbol_data.get('ema_13'),
+                "ema_20": symbol_data.get('ema_20'),
+                "ema_50": symbol_data.get('ema_50'),
+                "vwap": symbol_data.get('vwap'),
+                "atr": symbol_data.get('atr')
+            },
+            "momentum": {
+                "momentum_short": symbol_data.get('momentum_short'),
+                "momentum_7d": symbol_data.get('momentum_7d'),
+                "momentum_30d": symbol_data.get('momentum_30d'),
+                "trend_score": symbol_data.get('trend_score')
+            },
+            "volume": {
+                "current": symbol_data.get('volume'),
+                "ratio": symbol_data.get('volume_ratio'),
+                "composite_score": symbol_data.get('volume_composite_score'),
+                "poc_distance": symbol_data.get('poc_distance')
+            },
+            "patterns": {
+                "ichimoku_bullish": symbol_data.get('ichimoku_bullish'),
+                "vwap_bullish": symbol_data.get('vwap_bullish'),
+                "ema_crossover": symbol_data.get('ema_crossover'),
+                "fib_confluence": symbol_data.get('fib_confluence')
+            },
+            "advanced": {
+                "cluster_validated": symbol_data.get('cluster_validated'),
+                "reversion_probability": symbol_data.get('reversion_probability'),
+                "regime": symbol_data.get('trend_regime'),
+                "confidence_score": symbol_data.get('confidence_score')
+            },
+            "signal": symbol_data.get('signal'),
+            "composite_score": symbol_data.get('composite_score'),
+            "timestamp": symbol_data.get('timestamp')
+        }
+    except Exception as e:
+        logger.error(f"Technical analysis error: {e}")
+        return {"error": str(e)}
+
 @app.websocket("/ws/scanner")
 async def websocket_scanner(websocket):
     """WebSocket endpoint for real-time scanner updates"""

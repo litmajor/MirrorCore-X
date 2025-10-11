@@ -1,9 +1,9 @@
-
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Trading from './pages/Trading';
 import Analytics from './pages/Analytics';
+import TechnicalAnalysis from './pages/TechnicalAnalysis'; // Assuming TechnicalAnalysis.tsx exists
 import Strategies from './pages/Strategies';
 import RiskManagement from './pages/RiskManagement';
 import Settings from './pages/Settings';
@@ -18,6 +18,7 @@ function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/trading" element={<Trading />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/technical" element={<TechnicalAnalysis />} />
           <Route path="/strategies" element={<Strategies />} />
           <Route path="/risk" element={<RiskManagement />} />
           <Route path="/settings" element={<Settings />} />
