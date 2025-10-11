@@ -11,9 +11,10 @@ import time
 from typing import Dict, Any
 
 # Import your existing components
-from mirrax import SyncBus, create_mirrorcore_system
+from mirrorcore_x import HighPerformanceSyncBus, create_mirrorcore_system
 from scanner import MomentumScanner, get_dynamic_config
 import ccxt
+from trade_analyzer_agent import TradeAnalyzerAgent
 
 eventlet.monkey_patch()
 

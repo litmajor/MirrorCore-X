@@ -296,11 +296,11 @@ class AdvancedRiskManager:
         
         # VaR calculation
         var_percentile = (1 - self.risk_limits.var_confidence) * 100
-        self.var_estimate = np.percentile(returns, var_percentile)
+        self.var_estimate = float(np.percentile(returns, var_percentile))
         
         # Expected Shortfall (average of returns below VaR)
         tail_returns = returns[returns <= self.var_estimate]
-        self.expected_shortfall = np.mean(tail_returns) if len(tail_returns) > 0 else self.var_estimate
+        self.expected_shortfall = float(np.mean(tail_returns)) if len(tail_returns) > 0 else float(self.var_estimate)
     
     def _run_stress_tests(self, positions: Dict, market_data: List) -> Dict[str, Any]:
         """Run Monte Carlo stress tests"""

@@ -1,0 +1,14 @@
+[
+  {
+    "timestamp": "2025-09-30T00:44:19.806126",
+    "signals": {
+      "multi_timeframe_consensus": true,
+      "conflicting_signals": false,
+      "dominant_timeframe": null,
+      "signals_by_timeframe": {
+        "scalp": {
+          "momentum": {
+            "price_change_pct": 0.0003108305002427745,
+            "volume_ratio": 0.7631840857074486,
+            "momentum_score": 0.00023722089113777074,
+            "is_momentum": 
