@@ -40,6 +40,9 @@ global_state = {
     'comprehensive_optimizer': None # Added for optimization results
 }
 
+# Backwards-compatible alias expected by start_system.py
+system_state = global_state
+
 active_websockets: List[WebSocket] = []
 
 
@@ -98,8 +101,9 @@ async def startup_event():
         asyncio.create_task(run_system_loop())
 
         logger.info("✅ System initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize system: {e}")
+    except Exception:
+        # Log full traceback to help debug initialization failures
+        logger.exception("Failed to initialize system during startup_event")
 
 async def run_system_loop():
     """Background task to run system ticks and broadcast updates"""
@@ -1461,4 +1465,4 @@ async def get_conversation_history():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info", reload=True)

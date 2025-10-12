@@ -320,8 +320,19 @@ class ProductionSafeMirrorOptimizer:
                     return -np.inf
             
             # Run Bayesian optimization with async wrapper
+            # Safe sync wrapper for the async objective: runs the coroutine in a separate thread
+            def _sync_objective(**p):
+                import concurrent.futures
+
+                def _runner():
+                    return asyncio.run(safe_objective(**p))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                    fut = exe.submit(_runner)
+                    return fut.result()
+
             optimizer = BayesianOptimization(
-                f=lambda **p: asyncio.run(safe_objective(**p)),
+                f=_sync_objective,
                 pbounds=filtered_bounds,
                 random_state=42,
                 verbose=1

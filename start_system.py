@@ -1,4 +1,4 @@
-
+ 
 """
 Complete System Startup Script
 Launches FastAPI server with integrated trading system
@@ -54,7 +54,18 @@ if __name__ == "__main__":
     print("\n" + "=" * 80 + "\n")
     
     # Start parallel scanner initialization in background
-    asyncio.create_task(startup_with_parallel_scanner())
+    # `asyncio.create_task` requires a running event loop. Start the
+    # startup coroutine in a separate daemon thread using `asyncio.run`.
+    import threading
+
+    def _run_startup():
+        try:
+            asyncio.run(startup_with_parallel_scanner())
+        except Exception as e:
+            logging.error(f"Error running startup coroutine: {e}")
+
+    t = threading.Thread(target=_run_startup, daemon=True)
+    t.start()
     
     uvicorn.run(
         "api:app",

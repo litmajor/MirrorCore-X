@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CryptoOptimizationConfig:
     """Configuration specific to crypto markets"""
+    # Basic metadata
+    optimization_metric: str = "SHARPE_RATIO"
+    risk_profile: str = "moderate"
+    # Backwards-compatible optional fields
+    objective: Optional[str] = None
+    max_position_size: float = 0.1
+    turnover_penalty: float = 0.0
     
     # Volatility handling
     extreme_vol_threshold: float = 0.10  # 10% hourly volatility = extreme
@@ -64,6 +71,16 @@ class CryptoOptimizationConfig:
     # Market microstructure
     orderbook_depth_levels: int = 10  # Levels to analyze
     min_liquidity_ratio: float = 0.1  # Min ratio of size to daily volume
+
+    def __post_init__(self):
+        # Allow 'objective' to be passed as a legacy alias for optimization_metric
+        if self.objective:
+            # Support both enum-like and string inputs (e.g., OptimizationObjective.SHARPE_RATIO)
+            try:
+                # If objective is an enum value with 'name', use that
+                self.optimization_metric = getattr(self.objective, 'name', str(self.objective))
+            except Exception:
+                self.optimization_metric = str(self.objective)
 
 
 class CryptoRegimeDetector:
@@ -377,19 +394,70 @@ class CryptoCrossExchangeArbitrage:
 class CryptoEnsembleOptimizer:
     """
     Extended ensemble optimizer with crypto-specific features.
+    Accepts strategies and a crypto config. A base optimizer may be provided
+    for mathematical optimization; otherwise a lightweight fallback is used.
     """
-    
+
     def __init__(
-        self, 
-        base_optimizer,
-        crypto_config: CryptoOptimizationConfig
+        self,
+        strategies: Optional[List] = None,
+        crypto_config: Optional[CryptoOptimizationConfig] = None,
+        base_optimizer: Optional[object] = None,
+        **kwargs,
     ):
-        self.base_optimizer = base_optimizer
+        # Registered strategy objects (could be agents or callable evaluators)
+        self.strategies = strategies or []
+
+        # Crypto configuration: accept either `crypto_config` or legacy `config` kw
+        if crypto_config is None:
+            crypto_config = kwargs.get('config', None) or kwargs.get('crypto_config', None)
+            if crypto_config is None:
+                crypto_config = CryptoOptimizationConfig()
         self.config = crypto_config
+
+        # Base optimizer (optional). Provide a simple fallback if not given.
+        if base_optimizer is None:
+            # Lightweight fallback optimizer shim
+            from types import SimpleNamespace
+
+            class _FallbackOptimizer:
+                def __init__(self):
+                    cfg = SimpleNamespace()
+                    cfg.lambda_risk = 1.0
+                    cfg.eta_turnover = 0.0
+                    self.config = cfg
+
+                def estimate_parameters(self, strategy_returns: pd.DataFrame):
+                    # Estimate mu and Sigma using simple sample moments
+                    if strategy_returns is None or strategy_returns.empty:
+                        return pd.Series(dtype=float), pd.DataFrame()
+                    mu = strategy_returns.mean()
+                    Sigma = strategy_returns.cov()
+                    return mu, Sigma
+
+                def optimize(self, mu, Sigma, regime=None):
+                    # Simple equal-weight fallback
+                    try:
+                        n = len(mu)
+                    except Exception:
+                        n = 0
+                    if n <= 0:
+                        weights = np.array([])
+                    else:
+                        weights = np.ones(n) / float(n)
+                    return SimpleNamespace(weights=np.array(weights))
+
+            base_optimizer = _FallbackOptimizer()
+
+        self.base_optimizer = base_optimizer
         self.regime_detector = CryptoRegimeDetector()
-        self.on_chain_analyzer = OnChainAnalyzer(crypto_config)
-        self.flash_crash_protector = CryptoFlashCrashProtector(crypto_config)
-        self.arb_detector = CryptoCrossExchangeArbitrage(crypto_config)
+        self.on_chain_analyzer = OnChainAnalyzer(self.config)
+        self.flash_crash_protector = CryptoFlashCrashProtector(self.config)
+        self.arb_detector = CryptoCrossExchangeArbitrage(self.config)
+
+    def register_strategies(self, strategies: List):
+        """Register strategies after initialization if needed."""
+        self.strategies = strategies or []
     
     def optimize_crypto_ensemble(
         self,

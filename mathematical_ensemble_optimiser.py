@@ -28,6 +28,7 @@ class OptimizationObjective(Enum):
     """Optimization objective types"""
     MEAN_VARIANCE = "mean_variance"
     MAX_SHARPE = "max_sharpe"
+    SHARPE_RATIO = "sharpe_ratio"
     RISK_PARITY = "risk_parity"
     MIN_VARIANCE = "min_variance"
     ROBUST_CVaR = "robust_cvar"
@@ -295,7 +296,7 @@ class EnsembleOptimizer:
         elif objective == OptimizationObjective.MIN_VARIANCE:
             # Minimize variance only
             obj = cp.Minimize(cp.quad_form(w, Sigma))
-        elif objective == OptimizationObjective.MAX_SHARPE:
+        elif objective == OptimizationObjective.MAX_SHARPE or objective == OptimizationObjective.SHARPE_RATIO:
             # Approximate max Sharpe via regularized objective
             obj = cp.Maximize(w @ ret - 0.5 * cp.quad_form(w, Sigma))
         else:

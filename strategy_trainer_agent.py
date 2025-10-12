@@ -2,6 +2,7 @@
 # strategy_trainer_agent.py
 from collections import defaultdict
 import numpy as np
+import pandas as pd
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 import asyncio

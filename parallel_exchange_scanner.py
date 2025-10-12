@@ -147,7 +147,8 @@ class ParallelExchangeScanner:
                  exchange_configs: List[ExchangeConfig],
                  quote_currency: str = 'USDT',
                  min_volume_usd: float = 100000,
-                 max_concurrent_per_exchange: int = 3):
+                 max_concurrent_per_exchange: int = 3,
+                 use_per_worker_loop: bool = False):
         
         self.configs = {cfg.exchange_id: cfg for cfg in exchange_configs}
         self.quote_currency = quote_currency
@@ -179,6 +180,14 @@ class ParallelExchangeScanner:
             self.rate_limiters[cfg.exchange_id] = asyncio.Semaphore(
                 int(cfg.rate_limit_per_second)
             )
+
+        # Optional per-exchange worker loops for persistent exchanges
+        self.use_per_worker_loop = use_per_worker_loop
+        self.workers: Dict[str, Dict] = {}
+        if self.use_per_worker_loop:
+            # Start a worker loop and persistent exchange for each configured exchange
+            for cfg in exchange_configs:
+                self._start_worker(cfg.exchange_id, cfg)
     
     async def scan_all_exchanges(self, 
                                  symbols: Optional[List[str]] = None,
@@ -235,6 +244,14 @@ class ParallelExchangeScanner:
         health = self.health[exchange_id]
         results = []
         
+        # If per-worker loop is enabled and a persistent worker exists, delegate
+        if self.use_per_worker_loop and exchange_id in self.workers:
+            # Schedule the worker coroutine on the worker loop and return its result
+            worker = self.workers[exchange_id]
+            cf = asyncio.run_coroutine_threadsafe(self._worker_scan_exchange(exchange_id, symbols), worker['loop'])
+            # Wrap concurrent.futures.Future into asyncio.Future for awaiting
+            return await asyncio.wrap_future(cf)
+
         exchange = None
         try:
             # Acquire connection from pool
@@ -323,6 +340,99 @@ class ParallelExchangeScanner:
                     await asyncio.sleep(0.5 * (attempt + 1))
         
         return None
+
+    def _start_worker(self, exchange_id: str, config: ExchangeConfig):
+        """Start a dedicated thread with an asyncio loop and persistent exchange instance."""
+        import threading
+        import concurrent.futures
+
+        loop = asyncio.new_event_loop()
+
+        def _run_loop():
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_run_loop, daemon=True)
+        thread.start()
+
+        # Initialize the exchange instance inside the worker loop
+        async def _init_exchange():
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange_conf = {
+                'enableRateLimit': True,
+                'timeout': config.timeout_seconds * 1000,
+            }
+            if config.api_key and config.api_secret:
+                exchange_conf['apiKey'] = config.api_key
+                exchange_conf['secret'] = config.api_secret
+
+            exch = exchange_class(exchange_conf)
+            try:
+                await exch.load_markets()
+            except Exception:
+                # Not fatal at init; worker will attempt loads later
+                pass
+            return exch
+
+        cf = asyncio.run_coroutine_threadsafe(_init_exchange(), loop)
+        exch = cf.result()
+
+        self.workers[exchange_id] = {
+            'loop': loop,
+            'thread': thread,
+            'exchange': exch,
+            'config': config
+        }
+
+    async def _worker_scan_exchange(self, exchange_id: str, symbols: Optional[List[str]] = None) -> List[ScanResult]:
+        """Coroutine that runs inside a worker loop and scans using the persistent exchange."""
+        worker = self.workers.get(exchange_id)
+        if not worker:
+            return []
+
+        exchange = worker['exchange']
+        config = worker['config']
+        health = self.health[exchange_id]
+        results: List[ScanResult] = []
+
+        try:
+            # Ensure markets are loaded
+            if not getattr(exchange, 'markets', None):
+                try:
+                    await exchange.load_markets()
+                except Exception:
+                    pass
+
+            scan_symbols = symbols or self._get_exchange_symbols(exchange)
+
+            semaphore = asyncio.Semaphore(self.max_concurrent)
+
+            async def scan_symbol(sym: str):
+                async with semaphore:
+                    return await self._fetch_ticker_with_retry(exchange, exchange_id, sym)
+
+            ticker_tasks = [scan_symbol(sym) for sym in scan_symbols]
+            ticker_results = await asyncio.gather(*ticker_tasks, return_exceptions=True)
+
+            for ticker_result in ticker_results:
+                if isinstance(ticker_result, ScanResult):
+                    results.append(ticker_result)
+
+            health.success_count += 1
+            health.last_success = time.time()
+
+        except Exception as e:
+            logger.error(f"Worker exchange {exchange_id} scan failed: {e}")
+            health.failure_count += 1
+            health.last_failure = time.time()
+
+        return results
     
     async def _wait_for_rate_limit(self, exchange_id: str):
         """
@@ -489,6 +599,21 @@ class ParallelExchangeScanner:
         Close all connections
         """
         await self.connection_pool.close_all()
+        # Close worker exchanges and stop their loops
+        for ex_id, w in list(self.workers.items()):
+            try:
+                cf = asyncio.run_coroutine_threadsafe(w['exchange'].close(), w['loop'])
+                cf.result(timeout=5)
+            except Exception:
+                pass
+            try:
+                w['loop'].call_soon_threadsafe(w['loop'].stop)
+            except Exception:
+                pass
+            try:
+                w['thread'].join(timeout=2)
+            except Exception:
+                pass
 
 
 # Example usage

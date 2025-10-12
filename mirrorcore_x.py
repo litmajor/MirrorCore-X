@@ -1361,7 +1361,12 @@ class MirrorMindMetaAgent:
                     # Optimization logic here
                     if hasattr(self.optimizer, 'optimize_component_safe') and callable(self.optimizer.optimize_component_safe):
                         if 'scanner' in self.optimizer.components:
-                            results = self.optimizer.optimize_component_safe('scanner', self.optimizer.components['scanner'], iterations=10)
+                            # optimize_component_safe is an async coroutine — ensure it is awaited
+                            try:
+                                results = await self.optimizer.optimize_component_safe('scanner', self.optimizer.components['scanner'], iterations=10)
+                            except Exception as e:
+                                logger.error(f"Error while awaiting optimizer.optimize_component_safe: {e}")
+                                results = None
                         else:
                             logger.error("No 'scanner' component found in optimizer.")
                             results = None
@@ -2747,27 +2752,42 @@ async def create_mirrorcore_system(
 
     try:
         if use_testnet:
-            # Use the correct testnet URL for Binance testnet
-            exchange = ccxt.binance()
-            exchange.enableRateLimit = True
-            exchange.options = {
-                'defaultType': 'spot',
-                'adjustForTimeDifference': True
-            }
+            # Use the correct testnet URL for Binance testnet and prefer spot markets
+            exchange = ccxt.binance({
+                'enableRateLimit': True,
+                'rateLimit': 100,
+                'timeout': 30000,
+                'options': {
+                    'defaultType': 'spot',
+                    'adjustForTimeDifference': True
+                }
+            })
+            # Try to enable sandbox mode if supported by the ccxt build
+            try:
+                if hasattr(exchange, 'set_sandbox_mode'):
+                    exchange.set_sandbox_mode(True)
+                    logger.info('Binance sandbox mode enabled')
+                else:
+                    exchange.urls = {'api': {'public': 'https://testnet.binance.vision/api', 'private': 'https://testnet.binance.vision/api'}}
+                    logger.info('Patched Binance testnet URLs')
+            except Exception as _e:
+                logger.debug(f'Failed to enable sandbox/testnet mode: {_e}')
             exchange.apiKey = secrets_manager.api_key or ''
             exchange.secret = secrets_manager.api_secret or ''
             exchange.password = secrets_manager.passphrase or ''
-            exchange.urls = {'api': {'public': 'https://testnet.binance.vision/api', 'private': 'https://testnet.binance.vision/api'}}
             logger.warning("Using Binance testnet.")
         else:
             # Build config for live trading
             creds = secrets_manager.get_exchange_config()
-            exchange = ccxt.binance()
-            exchange.enableRateLimit = True
-            exchange.options = {
-                'defaultType': 'spot',
-                'adjustForTimeDifference': True
-            }
+            exchange = ccxt.binance({
+                'enableRateLimit': True,
+                'rateLimit': 100,
+                'timeout': 30000,
+                'options': {
+                    'defaultType': 'spot',
+                    'adjustForTimeDifference': True
+                }
+            })
             exchange.apiKey = creds.get('apiKey', '')
             exchange.secret = creds.get('secret', '')
             exchange.password = creds.get('passphrase', '') or creds.get('options', {}).get('passphrase', '')
@@ -2833,6 +2853,16 @@ async def create_mirrorcore_system(
 
         # Create comprehensive optimizer
         comprehensive_optimizer = ProductionSafeMirrorOptimizer(all_components)
+
+        # If MirrorMindMetaAgent was created earlier with a placeholder optimizer,
+        # ensure it references the real comprehensive optimizer so components like
+        # 'scanner' are available to optimization routines.
+        try:
+            mirror_mind_meta_agent.optimizer = comprehensive_optimizer
+            logger.info("Linked MirrorMindMetaAgent to comprehensive optimizer")
+        except Exception:
+            # If mirror_mind_meta_agent not defined or cannot be updated, continue
+            pass
 
         # Initialize enhanced ensemble if enabled
         ensemble_manager = None

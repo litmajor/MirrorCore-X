@@ -5,11 +5,12 @@ export const useWebSocket = (url: string) => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [data, setData] = useState<any>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
   const connect = useCallback(() => {
-    const ws = new WebSocket(url);
+     const wsUrl = url.startsWith('ws://') ? url : `ws://${window.location.hostname}:5000${url}`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setIsConnected(true);

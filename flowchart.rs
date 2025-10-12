@@ -1,0 +1,29 @@
+digraph CognitiveNetwork {
+  graph [layout=fdp];
+  node [shape=box];
+  "EGO-CORE" [label="EGO-CORE\nRole: BiasNormalizationUnit\nTrust: 0.87"];
+  "FEAR-CORE" [label="FEAR-CORE\nRole: EmotionalRiskModel\nTrust: 0.82"];
+  "AWARE-CORE" [label="AWARE-CORE\nRole: AdaptiveAwarenessEngine\nTrust: 0.93"];
+  "DEC-MIRROR" [label="DEC-MIRROR\nRole: DualDecisionReflector\nTrust: 0.88"];
+  "REF-CORE" [label="REF-CORE\nRole: CognitiveFeedbackLoop\nTrust: 0.95"];
+  "MIND-CORE" [label="MIND-CORE\nRole: GlobalSelfModel\nTrust: 0.97"];
+  "META-CORE" [label="META-CORE\nRole: ContextualControlLayer\nTrust: 1.0"];
+  "EGO-CORE" -> "FEAR-CORE" [label="0.65"];
+  "EGO-CORE" -> "AWARE-CORE" [label="0.78"];
+  "FEAR-CORE" -> "EGO-CORE" [label="0.72"];
+  "FEAR-CORE" -> "DEC-MIRROR" [label="0.68"];
+  "AWARE-CORE" -> "EGO-CORE" [label="0.71"];
+  "AWARE-CORE" -> "REF-CORE" [label="0.8"];
+  "DEC-MIRROR" -> "REF-CORE" [label="0.84"];
+  "DEC-MIRROR" -> "META-CORE" [label="0.9"];
+  "REF-CORE" -> "MIND-CORE" [label="0.88"];
+  "REF-CORE" -> "AWARE-CORE" [label="0.8"];
+  "MIND-CORE" -> "META-CORE" [label="0.92"];
+  "MIND-CORE" -> "REF-CORE" [label="0.88"];
+  "META-CORE" -> "EGO-CORE" [label="1.0"];
+  "META-CORE" -> "FEAR-CORE" [label="1.0"];
+  "META-CORE" -> "AWARE-CORE" [label="1.0"];
+  "META-CORE" -> "DEC-MIRROR" [label="1.0"];
+  "META-CORE" -> "REF-CORE" [label="1.0"];
+  "META-CORE" -> "MIND-CORE" [label="1.0"];
+}

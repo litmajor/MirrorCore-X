@@ -28,7 +28,8 @@ class ParallelScannerIntegration:
                 exchange_configs=exchange_configs,
                 quote_currency='USDT',
                 min_volume_usd=500000,
-                max_concurrent_per_exchange=3
+                max_concurrent_per_exchange=3,
+                use_per_worker_loop=True
             )
             self.is_enabled = True
             logger.info("✅ Parallel Exchange Scanner initialized")

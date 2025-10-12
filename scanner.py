@@ -2,6 +2,7 @@ import json
 
 import asyncio
 import ccxt.pro as ccxt_async  # Use ccxt.pro for async support; install with 'pip install ccxtpro'
+import ccxt as ccxt_sync  # fallback to sync ccxt for thread-based calls
 from services.yfinance_adapter import YFinanceForexAdapter
 import pandas as pd
 import numpy as np
@@ -62,6 +63,28 @@ def setup_logging():
     return logger
 
 logger = setup_logging()
+
+
+def run_coroutine_blocking(coro):
+    """Run an async coroutine from sync code safely. If an event loop is running,
+    execute the coroutine in a separate thread via asyncio.run; otherwise run directly.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        def _runner():
+            return asyncio.run(coro)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+            fut = exe.submit(_runner)
+            return fut.result()
+    else:
+        return asyncio.run(coro)
 
 @dataclass
 class TradingConfig:
@@ -734,7 +757,43 @@ class MarketDataFetcher:
             for attempt in range(self.config.retry_attempts):
                 try:
                     async with async_timeout.timeout(15):
-                        markets = await self.exchange.load_markets()
+                        # Create a temporary exchange on the current event loop to avoid
+                        # "Future attached to a different loop" errors when the shared
+                        # exchange was created in another thread/loop.
+                        if hasattr(self.exchange, '__class__') and hasattr(self.exchange, 'load_markets'):
+                            exchange_class = self.exchange.__class__
+                            params = {}
+                            # Try to copy common connection params
+                            for a in ('enableRateLimit', 'rateLimit', 'timeout'):
+                                if hasattr(self.exchange, a):
+                                    val = getattr(self.exchange, a)
+                                    if val is not None:
+                                        params[a] = val
+                            if hasattr(self.exchange, 'options') and getattr(self.exchange, 'options'):
+                                params['options'] = getattr(self.exchange, 'options')
+                            if hasattr(self.exchange, 'urls') and getattr(self.exchange, 'urls'):
+                                params['urls'] = getattr(self.exchange, 'urls')
+                            # API credentials set directly on instance
+                            try:
+                                tmp = exchange_class(params) if params else exchange_class({'enableRateLimit': True})
+                                for cred in ('apiKey', 'secret', 'password'):
+                                    if hasattr(self.exchange, cred):
+                                        setattr(tmp, cred, getattr(self.exchange, cred))
+                            except Exception:
+                                # Fall back to using the original exchange if instantiation fails
+                                tmp = self.exchange
+
+                            try:
+                                markets = await tmp.load_markets()
+                            finally:
+                                # Close temporary exchange if we created it here
+                                if tmp is not self.exchange:
+                                    try:
+                                        await tmp.close()
+                                    except Exception:
+                                        pass
+                        else:
+                            markets = await self.exchange.load_markets()
                     valid_symbols = []
                     for symbol, market in markets.items():
                         try:
@@ -746,7 +805,41 @@ class MarketDataFetcher:
                     logger.info(f"Found {len(valid_symbols)} valid {market_type} symbols")
                     return valid_symbols
                 except Exception as e:
+                    err_text = str(e).lower()
                     logger.error(f"Attempt {attempt + 1} failed to fetch markets: {e}")
+                    # Fallback: if this looks like a cross-loop or closed-loop issue, try sync client in thread
+                    if 'attached to a different loop' in err_text or 'event loop is closed' in err_text:
+                        try:
+                            def _sync_fetch():
+                                exchange_class = getattr(ccxt_sync, getattr(self.exchange, 'id', 'binance'))
+                                ex_conf = {'enableRateLimit': True}
+                                try:
+                                    ex = exchange_class(ex_conf)
+                                    markets = ex.load_markets()
+                                    ex.close()
+                                    return markets
+                                except Exception:
+                                    try:
+                                        ex.close()
+                                    except Exception:
+                                        pass
+                                    raise
+
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                                fut = exe.submit(_sync_fetch)
+                                markets = fut.result(timeout=20)
+                                valid_symbols = []
+                                for symbol, market in markets.items():
+                                    try:
+                                        if self._is_valid_market(market, market_type, quote_currency):
+                                            valid_symbols.append(symbol)
+                                    except Exception:
+                                        continue
+                                logger.info(f"Found {len(valid_symbols)} valid {market_type} symbols (sync fallback)")
+                                return valid_symbols
+                        except Exception as e2:
+                            logger.error(f"Sync fallback failed to fetch markets: {e2}")
                     if attempt < self.config.retry_attempts - 1:
                         await asyncio.sleep(self.config.retry_delay * (attempt + 1))
                     else:
@@ -784,7 +877,35 @@ class MarketDataFetcher:
             for attempt in range(self.config.retry_attempts):
                 try:
                     async with async_timeout.timeout(15):
-                        ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                        # Use a temporary exchange instance on this loop to avoid cross-loop futures
+                        if hasattr(self.exchange, '__class__') and hasattr(self.exchange, 'fetch_ohlcv'):
+                            exchange_class = self.exchange.__class__
+                            params = {}
+                            for a in ('enableRateLimit', 'rateLimit', 'timeout'):
+                                if hasattr(self.exchange, a):
+                                    val = getattr(self.exchange, a)
+                                    if val is not None:
+                                        params[a] = val
+                            if hasattr(self.exchange, 'options') and getattr(self.exchange, 'options'):
+                                params['options'] = getattr(self.exchange, 'options')
+                            try:
+                                tmp = exchange_class(params) if params else exchange_class({'enableRateLimit': True})
+                                for cred in ('apiKey', 'secret', 'password'):
+                                    if hasattr(self.exchange, cred):
+                                        setattr(tmp, cred, getattr(self.exchange, cred))
+                            except Exception:
+                                tmp = self.exchange
+
+                            try:
+                                ohlcv = await tmp.fetch_ohlcv(symbol, timeframe, limit=limit)
+                            finally:
+                                if tmp is not self.exchange:
+                                    try:
+                                        await tmp.close()
+                                    except Exception:
+                                        pass
+                        else:
+                            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
                     if not ohlcv:
                         return None
                     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -803,6 +924,37 @@ class MarketDataFetcher:
                             await asyncio.sleep(self.config.circuit_breaker_pause)
                             self.rate_limit_errors = 0
                     logger.warning(f"Attempt {attempt + 1} failed for {symbol}: {e}")
+                    # If error looks like cross-loop or closed-loop, fallback to running sync ccxt in a thread
+                    if 'attached to a different loop' in error_msg or 'event loop is closed' in error_msg:
+                        try:
+                            def _sync_ohlcv():
+                                exchange_class = getattr(ccxt_sync, getattr(self.exchange, 'id', 'binance'))
+                                ex_conf = {'enableRateLimit': True}
+                                ex = exchange_class(ex_conf)
+                                try:
+                                    data = ex.fetch_ohlcv(symbol, timeframe, limit)
+                                    ex.close()
+                                    return data
+                                finally:
+                                    try:
+                                        ex.close()
+                                    except Exception:
+                                        pass
+
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                                fut = exe.submit(_sync_ohlcv)
+                                ohlcv = fut.result(timeout=30)
+                                if not ohlcv:
+                                    return None
+                                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                                df.set_index('timestamp', inplace=True)
+                                self.cache[cache_key] = {'data': df, 'timestamp': time.time()}
+                                self.rate_limit_errors = 0
+                                return df
+                        except Exception as e2:
+                            logger.error(f"Sync fallback failed for {symbol}: {e2}")
                     if attempt < self.config.retry_attempts - 1:
                         await asyncio.sleep(self.config.retry_delay * (attempt + 1))
                     else:
@@ -1085,12 +1237,21 @@ class MomentumScanner(OptimizableAgent):
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                if loop.is_running():
-                    # If already running (e.g. in Jupyter), use asyncio.run
-                    result = asyncio.run(backtest_fn())
+                    loop = None
+
+                if loop and loop.is_running():
+                    # Run the coroutine in a background thread using asyncio.run
+                    import concurrent.futures
+
+                    def _runner():
+                        return asyncio.run(backtest_fn())
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                        fut = exe.submit(_runner)
+                        result = fut.result()
                 else:
+                    # No running loop, safe to run directly
+                    loop = loop or asyncio.new_event_loop()
                     result = loop.run_until_complete(backtest_fn())
             else:
                 result = backtest_fn()
@@ -1197,11 +1358,32 @@ class MomentumScanner(OptimizableAgent):
             f"Initialized MomentumScanner for {market_type} market with "
             f"quote_currency={quote_currency}, min_volume_usd={min_volume_usd}, top_n={top_n}"
         )
-
+        # Schedule exchange initialization safely.
+        # If there's a running event loop, schedule as a task. Otherwise run
+        # the initialization in a background daemon thread so it doesn't block
+        # synchronous callers and avoids mixing event loops.
         try:
-            asyncio.create_task(self._initialize_exchange())
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                asyncio.create_task(self._initialize_exchange())
+            else:
+                import threading
+
+                def _init_runner():
+                    try:
+                        asyncio.run(self._initialize_exchange())
+                    except Exception as _e:
+                        logger.error(f"Background exchange init failed: {_e}")
+
+                t = threading.Thread(target=_init_runner, daemon=True)
+                t.start()
         except Exception as e:
-            logger.error(f"Failed to initialize exchange: {e}")
+            logger.error(f"Failed to schedule exchange initialization: {e}")
             raise
 
     async def _initialize_exchange(self):
@@ -1530,9 +1712,27 @@ class MomentumScanner(OptimizableAgent):
 
         df_results = df_results.sort_values('enhanced_score', ascending=False)
 
+        # Diagnostic logging: report raw result counts before filtering so we can
+        # understand why the filtered DataFrame may end up empty in production runs.
+        try:
+            raw_count = len(df_results)
+            logger.info(f"Scanner diagnostic: raw result rows before filters={raw_count} (timeframe={timeframe}, requested_top_n={top_n})")
+            # Log a small sample for debugging when verbose logging is enabled
+            if raw_count > 0:
+                try:
+                    sample = df_results[['symbol', 'composite_score', 'average_volume_usd']].head(5).to_dict(orient='records')
+                    logger.debug(f"Scanner diagnostic sample rows: {sample}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Apply volume filter
         if self.min_volume_usd > 0:
+            before_vol_filter = len(df_results)
             df_results = df_results[df_results['average_volume_usd'] >= self.min_volume_usd]
+            after_vol_filter = len(df_results)
+            logger.info(f"Scanner diagnostic: volume filter (min_volume_usd={self.min_volume_usd}) removed {before_vol_filter - after_vol_filter} rows; remaining={after_vol_filter}")
 
         # Return top N results
         df_results = df_results.head(top_n)
@@ -1665,7 +1865,8 @@ class MomentumScanner(OptimizableAgent):
         logger.info(f"Starting multi-timeframe scan: {timeframes}")
         tf_results = {}
         for tf in timeframes:
-            tf_results[tf] = asyncio.run(self.scan_market(tf, full_analysis, save_results=False)) # Use asyncio.run for sync call
+            # scan_market is synchronous; call directly (it will internally handle async data fetching)
+            tf_results[tf] = self.scan_market(tf, full_analysis, save_results=False)
         valid_dfs = [df for df in tf_results.values() if not df.empty]
         if not valid_dfs:
             logger.warning("No valid results in any timeframe")
@@ -2305,8 +2506,29 @@ class MomentumScanner(OptimizableAgent):
         if top_n is None:
             top_n = self.top_n
 
+        # Get market symbols (handle both running and non-running asyncio loops)
+        def _fetch_markets_blocking():
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+
+            # If there's an active running loop (e.g., FastAPI/Uvicorn), run the coroutine
+            # in a separate thread using asyncio.run to avoid "asyncio.run() cannot be called"
+            if loop and loop.is_running():
+                import concurrent.futures
+
+                def _runner():
+                    return asyncio.run(self.data_fetcher.fetch_markets(self.market_type, self.quote_currency))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as exe:
+                    fut = exe.submit(_runner)
+                    return fut.result()
+            else:
+                return asyncio.run(self.data_fetcher.fetch_markets(self.market_type, self.quote_currency))
+
         # Get market symbols
-        symbols = asyncio.run(self.data_fetcher.fetch_markets(self.market_type, self.quote_currency))
+        symbols = _fetch_markets_blocking()
         if not symbols:
             logger.error("No symbols fetched from market")
             return pd.DataFrame()
@@ -2323,7 +2545,7 @@ class MomentumScanner(OptimizableAgent):
         with tqdm(total=len(symbols), desc=f"Enhanced scanning {self.market_type} market ({timeframe})") as pbar:
             for symbol in symbols:
                 try:
-                    df = asyncio.run(self.data_fetcher.fetch_ohlcv(symbol, ccxt_timeframe, limit=self.config.lookback_window))
+                    df = run_coroutine_blocking(self.data_fetcher.fetch_ohlcv(symbol, ccxt_timeframe, limit=self.config.lookback_window))
                     if df is None or len(df) < 20:
                         pbar.update(1)
                         continue
@@ -2921,11 +3143,34 @@ async def main():
         if exchange_class is None:
             continue
         try:
+            # Prefer spot markets and enable reasonable timeouts/ratelimit.
             exchange = exchange_class({
                 'enableRateLimit': True,
                 'rateLimit': 100,
                 'timeout': 30000,
+                'options': {
+                    'defaultType': 'spot',
+                    'adjustForTimeDifference': True,
+                }
             })
+            # For Binance specifically, prefer sandbox/testnet for safety when available.
+            try:
+                if exchange_name.lower() == 'binance' and hasattr(exchange, 'set_sandbox_mode'):
+                    # Many ccxt builds support set_sandbox_mode on the instance
+                    try:
+                        exchange.set_sandbox_mode(True)
+                        logger.info("Binance sandbox mode enabled for scanner")
+                    except Exception:
+                        # Fallback: patch urls to known testnet endpoint (best-effort)
+                        exchange.urls = {
+                            'api': {
+                                'public': 'https://testnet.binance.vision/api',
+                                'private': 'https://testnet.binance.vision/api'
+                            }
+                        }
+                        logger.info("Binance sandbox URL patched for scanner")
+            except Exception as e:
+                logger.debug(f"Could not enable sandbox mode for {exchange_name}: {e}")
             # Test connection
             await exchange.load_markets()
             logger.info(f"Successfully connected to {exchange_name}")
